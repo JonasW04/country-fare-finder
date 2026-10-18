@@ -1,0 +1,181 @@
+import { candidateAirports } from "../airports";
+import { bookingLink } from "../booking-link";
+import { addDays, enumerateDates, sampleDates } from "../dates";
+import { ProviderError } from "../providers/types";
+import type { FlightProvider, Offer, OfferQuery } from "../providers/types";
+import { OfferStore, rankCombinations } from "../ranking";
+import type { Combination } from "../ranking";
+import type { SearchRequest } from "../search-request";
+import { CallBudget } from "./budget";
+import type { TtlCache } from "./cache";
+import type { SearchConfig } from "./config";
+import { runBounded } from "./pool";
+import { AttemptsExhaustedError, withRetry } from "./retry";
+
+export interface SearchDeps {
+  provider: FlightProvider;
+  requested: string;
+  fellBack: boolean;
+  cache: TtlCache<Offer[]>;
+  config: SearchConfig;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+export interface SearchResponse {
+  provider: { name: string; requested: string; fellBack: boolean };
+  request: SearchRequest;
+  providerCalls: number;
+  cacheHits: number;
+  cacheMisses: number;
+  budget: { max: number; used: number; exhausted: boolean };
+  candidateAirports: number;
+  lookupsPlanned: number;
+  lookupsSkipped: number;
+  lookupsFailed: number;
+  partial: boolean;
+  notes: string[];
+  combinations: Combination[];
+  citiesWithoutReturn: string[];
+}
+
+interface Lookup {
+  direction: "out" | "in";
+  query: OfferQuery;
+}
+
+/**
+ * Lookups are ordered by tier, then origin, then airport. Tier t prices one (date, nights)
+ * sample for every airport, so a budget that runs out mid-search leaves every airport with
+ * the same coverage instead of a few airports with many dates.
+ */
+function planLookups(req: SearchRequest, airports: string[], maxDatesPerLeg: number): Lookup[] {
+  const outDates = sampleDates(enumerateDates(req.earliest, req.latest), maxDatesPerLeg);
+  const nights: number[] = [];
+  for (let n = req.minNights; n <= req.maxNights; n++) nights.push(n);
+  const nightSamples = sampleDates(nights.map(String), maxDatesPerLeg).map(Number);
+
+  const origins = [req.origin, ...(req.secondOrigin ? [req.secondOrigin] : [])];
+  const lookups: Lookup[] = [];
+  outDates.forEach((outDate, tier) => {
+    const backDate = addDays(outDate, nightSamples[tier % nightSamples.length] ?? req.minNights);
+    for (const origin of origins) {
+      for (const city of airports) {
+        const base = { cabin: req.cabin, adults: req.adults, currency: req.currency };
+        lookups.push({ direction: "out", query: { ...base, origin, destination: city, date: outDate } });
+        lookups.push({ direction: "in", query: { ...base, origin: city, destination: origin, date: backDate } });
+      }
+    }
+  });
+  return lookups;
+}
+
+function cacheKey(provider: string, q: OfferQuery): string {
+  // Adults and currency change the price, so they belong in the key alongside the spec's fields.
+  return [provider, q.origin, q.destination, q.date, q.cabin, q.adults, q.currency].join("|");
+}
+
+async function callProvider(deps: SearchDeps, query: OfferQuery, budget: CallBudget): Promise<Offer[]> {
+  const { config, provider } = deps;
+  return withRetry(
+    async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), config.callTimeoutMs);
+      try {
+        return await provider.searchOffers(query, { signal: controller.signal });
+      } catch (err) {
+        // A timeout is transient, so give it the same treatment as a 5xx.
+        if (controller.signal.aborted) throw new ProviderError("Provider call timed out", 504);
+        throw err;
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+    {
+      retries: config.retries,
+      baseDelayMs: config.backoffMs,
+      sleep: deps.sleep,
+      beforeAttempt: () => budget.tryConsume(),
+    },
+  );
+}
+
+export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<SearchResponse> {
+  const origins = [req.origin, ...(req.secondOrigin ? [req.secondOrigin] : [])];
+  const candidates = candidateAirports(req.country, origins);
+  const budget = new CallBudget(deps.config.maxProviderCalls);
+  const store = new OfferStore(candidates);
+  const lookups = planLookups(req, candidates.map((a) => a.iata), deps.config.maxDatesPerLeg);
+
+  let cacheHits = 0;
+  let cacheMisses = 0;
+  let skipped = 0;
+  let failed = 0;
+  const failureNotes = new Set<string>();
+
+  const tasks = lookups.map(({ direction, query }) => async () => {
+    const key = cacheKey(deps.provider.name, query);
+    let offers = deps.cache.get(key);
+    if (offers) {
+      cacheHits++;
+    } else {
+      cacheMisses++;
+      try {
+        offers = await callProvider(deps, query, budget);
+        deps.cache.set(key, offers);
+      } catch (err) {
+        if (err instanceof AttemptsExhaustedError) skipped++;
+        else {
+          failed++;
+          failureNotes.add(err instanceof Error ? err.message : "Provider call failed");
+        }
+        return;
+      }
+    }
+    for (const offer of offers) {
+      const link = offer.bookingUrl ?? bookingLink(offer.origin, offer.destination, offer.date, req.adults);
+      store.add(direction, { ...offer, bookingUrl: link });
+    }
+  });
+  await runBounded(tasks, deps.config.concurrency);
+
+  const ranked = rankCombinations({
+    outbound: store.offers("out"),
+    inbound: store.offers("in"),
+    airports: candidates,
+    currency: req.currency,
+    minNights: req.minNights,
+    maxNights: req.maxNights,
+    limit: req.limit,
+  });
+
+  const notes: string[] = [];
+  if (deps.fellBack) {
+    notes.push(`FLIGHT_PROVIDER=${deps.requested} was requested but credentials are missing, so mock data was used.`);
+  }
+  if (skipped > 0) {
+    notes.push(
+      `Provider call budget (${budget.max}) exhausted: ${skipped} of ${lookups.length} price lookups were skipped, so these results are partial.`,
+    );
+  }
+  if (failed > 0) {
+    notes.push(`${failed} price lookups failed (${[...failureNotes].join("; ")}), so these results are partial.`);
+  }
+  if (ranked.combinations.length === 0) notes.push("No fare combinations matched the dates and trip length.");
+
+  return {
+    provider: { name: deps.provider.name, requested: deps.requested, fellBack: deps.fellBack },
+    request: req,
+    providerCalls: budget.calls,
+    cacheHits,
+    cacheMisses,
+    budget: { max: budget.max, used: budget.calls, exhausted: budget.exhausted },
+    candidateAirports: candidates.length,
+    lookupsPlanned: lookups.length,
+    lookupsSkipped: skipped,
+    lookupsFailed: failed,
+    partial: skipped > 0 || failed > 0,
+    notes,
+    combinations: ranked.combinations,
+    citiesWithoutReturn: ranked.citiesWithoutReturn,
+  };
+}
