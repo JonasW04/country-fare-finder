@@ -25,13 +25,18 @@ export function dayOfMonth(iso: string): string {
   return String(utc(iso).getUTCDate());
 }
 
-/** "10 to 14 Nov", or "28 Nov to 3 Dec" when the months differ. */
+/** "8–14 Nov", or "28 Nov – 3 Dec" when the months differ. */
 export function formatSpan(from: string, to: string): string {
   const month = (iso: string) => utc(iso).toLocaleDateString("en-GB", { month: "short", timeZone: "UTC" });
   const day = (iso: string) => utc(iso).getUTCDate();
   if (from === to) return `${day(from)} ${month(from)}`;
-  if (month(from) === month(to)) return `${day(from)} to ${day(to)} ${month(to)}`;
-  return `${day(from)} ${month(from)} to ${day(to)} ${month(to)}`;
+  if (month(from) === month(to)) return `${day(from)}–${day(to)} ${month(to)}`;
+  return `${day(from)} ${month(from)} – ${day(to)} ${month(to)}`;
+}
+
+/** "T" for the calendar strip: the first letter of the English weekday. */
+export function weekdayLetter(iso: string): string {
+  return utc(iso).toLocaleDateString("en-GB", { weekday: "short", timeZone: "UTC" }).charAt(0);
 }
 
 export function nightsLabel(nights: number): string {

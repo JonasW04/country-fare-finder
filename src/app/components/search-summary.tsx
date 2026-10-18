@@ -5,34 +5,31 @@ import { providerLabel } from "../lib/format";
 export function SearchSummary({ response: r }: { response: SearchResponse }) {
   const live = r.provider.name !== "mock";
   return (
-    <div className="space-y-3 text-sm">
+    <div className="space-y-2">
       {r.notes.length > 0 ? (
-        <div role="note" className="rounded-2xl bg-info px-4 py-3">
-          <p className="font-semibold">ℹ︎ Good to know</p>
-          <ul className="mt-1 list-disc space-y-1 pl-5">
-            {r.notes.map((n) => (
-              <li key={n}>{n}</li>
-            ))}
-          </ul>
+        <div className="space-y-1 text-[13px] text-subtle">
+          {r.notes.map((n) => (
+            <p key={n}>{n}</p>
+          ))}
         </div>
       ) : null}
-      <p data-testid="provider-summary" className="text-muted">
+      <p data-testid="provider-summary" className="text-xs text-subtle">
         {live ? "Live fares" : "Sample fares"} from {providerLabel(r.provider.name)} · {r.providerCalls} of {r.budget.max} requests ·{" "}
-        {r.candidateAirports} airports checked
+        {r.candidateAirports} airports
       </p>
-      <details className="text-muted">
-        <summary className="min-h-11 cursor-pointer py-2 font-semibold">Search details</summary>
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+      <details className="text-xs text-subtle">
+        <summary className="cursor-pointer py-1">Search details</summary>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 tabular-nums">
           <dt>Price lookups planned</dt>
-          <dd className="font-mono">{r.lookupsPlanned}</dd>
+          <dd>{r.lookupsPlanned}</dd>
           <dt>Answered from cache</dt>
-          <dd className="font-mono">{r.cacheHits}</dd>
+          <dd>{r.cacheHits}</dd>
           <dt>Skipped (budget or provider limit)</dt>
-          <dd className="font-mono">{r.lookupsSkipped}</dd>
+          <dd>{r.lookupsSkipped}</dd>
           <dt>Failed</dt>
-          <dd className="font-mono">{r.lookupsFailed}</dd>
+          <dd>{r.lookupsFailed}</dd>
           <dt>Trips re-priced exactly</dt>
-          <dd className="font-mono">{r.verifiedCombinations}</dd>
+          <dd>{r.verifiedCombinations}</dd>
           {r.citiesWithoutReturn.length > 0 ? (
             <>
               <dt>Cities with no return that fit</dt>

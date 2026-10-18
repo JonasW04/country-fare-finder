@@ -34,6 +34,3 @@ export function visibleTrips(
   // Rank already encodes price order, so it is the price sort and the tie-break for nights.
   return sort === "nights" ? [...kept].sort((a, b) => a.nights - b.nights || a.rank - b.rank) : kept;
 }
-
-/** Great-deal threshold in the result currency; below it the first card gets confetti. */
-export const GREAT_DEAL_TOTAL = 60;

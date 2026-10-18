@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { inTwoWeeks, localToday, nextMonth, nextWeekend, surpriseWindow } from "@/app/lib/date-presets";
 import { flagEmoji } from "@/app/lib/flags";
-import { formatDay, formatMoney, formatSpan } from "@/app/lib/format";
+import { formatDay, formatMoney, formatSpan, weekdayLetter } from "@/app/lib/format";
 import { bearingDeg, edgePoint, pinToFrame, splitOutliers } from "@/app/lib/map-geometry";
-import { priceColor, priceRatio } from "@/app/lib/price-scale";
+import { priceColor, priceRatio, priceTercile } from "@/app/lib/price-scale";
 import { openJawSaving, visibleTrips } from "@/app/lib/results";
 import { originCodeFromInput, originLabel } from "@/app/lib/origin-input";
 import { defaultForm, formFromParams, paramsFromForm } from "@/app/lib/search-form";
@@ -54,8 +54,9 @@ describe("date presets", () => {
 describe("formatting", () => {
   it("formats days, spans and money", () => {
     expect(formatDay("2026-11-12")).toBe("Thu 12 Nov");
-    expect(formatSpan("2026-11-10", "2026-11-14")).toBe("10 to 14 Nov");
-    expect(formatSpan("2026-11-28", "2026-12-03")).toBe("28 Nov to 3 Dec");
+    expect(formatSpan("2026-11-10", "2026-11-14")).toBe("10–14 Nov");
+    expect(formatSpan("2026-11-28", "2026-12-03")).toBe("28 Nov – 3 Dec");
+    expect(weekdayLetter("2026-11-12")).toBe("T");
     expect(formatMoney(14.99, "EUR")).toBe("€14.99");
     expect(formatMoney(23.4, "EUR", true)).toBe("€23");
   });
@@ -67,11 +68,11 @@ describe("formatting", () => {
 });
 
 describe("price scale", () => {
-  it("runs from mint at the cheapest to sunset at the dearest", () => {
-    expect(priceColor(10, 10, 50)).toBe("#2bd4a4");
-    expect(priceColor(50, 10, 50)).toBe("#ff6b3d");
-    expect(priceColor(30, 10, 50)).toBe("#ffc94d");
-    expect(priceColor(99, 10, 50)).toBe("#ff6b3d");
+  it("splits prices into terciles and only highlights the cheap third", () => {
+    expect([10, 20, 30, 40, 50].map((v) => priceTercile(v, 10, 50))).toEqual([0, 0, 1, 2, 2]);
+    expect(priceColor(10, 10, 50)).toBe("var(--color-accent)");
+    expect(priceColor(30, 10, 50)).toBe("var(--color-subtle)");
+    expect(priceColor(99, 10, 50)).toBe("var(--color-subtle)");
   });
 
   it("treats a single price as the cheapest", () => {
