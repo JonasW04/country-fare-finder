@@ -57,8 +57,9 @@ describe("airport dataset", () => {
     expect([...metros]).toEqual(["LON"]);
   });
 
-  it("ranks at least one airport in every supported country", () => {
-    for (const country of Object.keys(supportedCountries())) {
+  it("covers every country with a scheduled airport and ranks the hand-kept ones busiest first", () => {
+    expect(Object.keys(supportedCountries()).length).toBeGreaterThan(200);
+    for (const country of ["ES", "IT", "PT", "FR", "GR", "TH", "DE", "GB", "NL", "HR", "NO", "SE", "TR", "US", "JP"]) {
       expect(airportsForCountry(country).some((a) => a.rank !== undefined), country).toBe(true);
       expect(candidateAirports(country, [], 1)[0]?.rank, country).toBe(1);
     }

@@ -1,13 +1,14 @@
 // Regenerates data/airports.json from the public OurAirports CSVs.
 //
-// Usage: node scripts/build-airports.mjs [--countries=ES,IT,...] [--out=data/airports.json]
+// Usage: node scripts/build-airports.mjs [--countries=ALL|ES,IT,...] [--out=data/airports.json]
 // The country list can also come from the AIRPORT_COUNTRIES env var.
 import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { CITY_NAMES } from "./city-names.mjs";
 import { cityFor, download, parseArgs } from "./ourairports.mjs";
 
-const DEFAULT_COUNTRIES = ["ES", "IT", "PT", "FR", "GR", "TH", "DE", "GB", "NL", "HR", "NO", "SE", "TR", "US", "JP"];
+// Every country OurAirports lists that has at least one airport with scheduled service.
+const DEFAULT_COUNTRIES = ["ALL"];
 
 // OurAirports has no metro-area concept, so same-metro airports are listed by hand.
 // Anything not listed is its own metro, keyed by IATA code.
@@ -63,7 +64,7 @@ function metroFor(iata, city) {
 }
 
 export function buildAirports(airportRows, countryRows, countries) {
-  const wanted = new Set(countries);
+  const wanted = new Set(countries.includes("ALL") ? countryRows.map((c) => c.code) : countries);
   const airports = airportRows
     .filter(
       (r) =>
@@ -89,7 +90,8 @@ export function buildAirports(airportRows, countryRows, countries) {
     .sort((a, b) => a.country.localeCompare(b.country) || a.iata.localeCompare(b.iata));
 
   const names = Object.fromEntries(
-    countryRows.filter((c) => wanted.has(c.code)).map((c) => [c.code, c.name]),
+    // A country with no qualifying airport cannot be searched, so it is left out of the picker.
+    countryRows.filter((c) => airports.some((a) => a.country === c.code)).map((c) => [c.code, c.name]),
   );
   return { source: "OurAirports (public domain)", countries: names, airports };
 }
@@ -107,8 +109,19 @@ async function main() {
     download("countries.csv"),
   ]);
   const dataset = buildAirports(airportRows, countryRows, countries);
-  await writeFile(out, JSON.stringify(dataset, null, 1) + "\n");
-  console.log(`Wrote ${dataset.airports.length} airports for ${countries.join(", ")} to ${out}`);
+  // One airport per line keeps the file small and its diffs readable.
+  const body = [
+    "{",
+    ` "source": ${JSON.stringify(dataset.source)},`,
+    ` "countries": ${JSON.stringify(dataset.countries)},`,
+    ' "airports": [',
+    dataset.airports.map((a) => `  ${JSON.stringify(a)}`).join(",\n"),
+    " ]",
+    "}",
+  ].join("\n");
+  await writeFile(out, body + "\n");
+  const count = Object.keys(dataset.countries).length;
+  console.log(`Wrote ${dataset.airports.length} airports in ${count} countries to ${out}`);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
