@@ -1,7 +1,6 @@
 import type { NextConfig } from "next";
 
-const nextConfig: NextConfig = {
-  output: "standalone",
-};
+// No `output: "standalone"`: the container runs `next start`, which standalone builds do not support.
+const nextConfig: NextConfig = {};
 
 export default nextConfig;
