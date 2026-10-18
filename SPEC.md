@@ -23,9 +23,9 @@ A traveller knows which country they want to visit but not which cities to fly i
 `src/lib/providers/types.ts` defines `FlightProvider` with `searchOffers(query): Promise<Offer[]>`.
 
 - `mock.ts`: deterministic synthetic fares, seeded by route and date. Default. Always works with no credentials.
-- `amadeus.ts`: Amadeus Self-Service Flight Offers Search. OAuth2 client credentials against `test.api.amadeus.com` (env `AMADEUS_CLIENT_ID`, `AMADEUS_CLIENT_SECRET`, optional `AMADEUS_BASE_URL`).
+- `ryanair.ts` and `ignav.ts`: live providers, see `docs/provider-ryanair.md` and `docs/provider-ignav.md`. The Amadeus provider was removed because the service was shut down.
 
-Selection by env `FLIGHT_PROVIDER=mock|amadeus`. If `amadeus` is selected and credentials are absent, fall back to mock and label the response as mock rather than failing the search.
+Selection by env `FLIGHT_PROVIDER=mock|ryanair|ignav`. If a keyed provider (`ignav`) is selected and its key is absent, fall back to mock and label the response as mock rather than failing the search.
 
 ## Search engine requirements
 

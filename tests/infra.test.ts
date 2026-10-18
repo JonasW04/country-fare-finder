@@ -4,7 +4,7 @@ import { TtlCache } from "@/lib/server/cache";
 import { runBounded } from "@/lib/server/pool";
 import { AttemptsExhaustedError, withRetry } from "@/lib/server/retry";
 import { ProviderError } from "@/lib/providers/types";
-import { AmadeusProvider, maskSecrets } from "@/lib/providers/amadeus";
+import { maskSecrets } from "@/lib/providers/mask";
 
 describe("TtlCache", () => {
   it("expires entries and counts hits and misses", () => {
@@ -107,51 +107,8 @@ describe("withRetry", () => {
   });
 });
 
-describe("AmadeusProvider", () => {
-  const secret = "s3cr3t-value";
-  const clientId = "client-id-value";
-  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
-
-  it("fetches a token once, then maps offers", async () => {
-    const urls: string[] = [];
-    const fetchImpl = (async (url: string | URL | Request) => {
-      urls.push(String(url));
-      if (String(url).includes("oauth2/token")) return json({ access_token: "tok", expires_in: 1799 });
-      return json({
-        data: [
-          { price: { grandTotal: "123.45", currency: "EUR" }, validatingAirlineCodes: ["IB"], itineraries: [{ segments: [{ carrierCode: "IB" }, { carrierCode: "VY" }] }] },
-          { price: {} },
-        ],
-      });
-    }) as typeof fetch;
-    const provider = new AmadeusProvider({ clientId, clientSecret: secret, fetchImpl });
-    const q = { origin: "MAD", destination: "FCO", date: "2027-03-01", cabin: "economy", adults: 1, currency: "EUR" };
-
-    const offers = await provider.searchOffers(q);
-    await provider.searchOffers(q);
-
-    expect(offers).toEqual([
-      { origin: "MAD", destination: "FCO", date: "2027-03-01", price: 123.45, currency: "EUR", carriers: ["IB", "VY"] },
-    ]);
-    expect(urls.filter((u) => u.includes("oauth2/token"))).toHaveLength(1);
-    expect(urls[0]).toContain("https://test.api.amadeus.com");
-    expect(urls.find((u) => u.includes("flight-offers"))).toContain("travelClass=ECONOMY");
-  });
-
-  it("surfaces status-only errors with no credential values", async () => {
-    const fetchImpl = (async () => json({ error: `bad ${secret} ${clientId}` }, 401)) as typeof fetch;
-    const provider = new AmadeusProvider({ clientId, clientSecret: secret, fetchImpl });
-    const err = await provider
-      .searchOffers({ origin: "MAD", destination: "FCO", date: "2027-03-01", cabin: "ECONOMY", adults: 1, currency: "EUR" })
-      .catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(ProviderError);
-    const message = (err as ProviderError).message;
-    expect(message).toContain("401");
-    expect(message).not.toContain(secret);
-    expect(message).not.toContain(clientId);
-  });
-
-  it("maskSecrets replaces every occurrence", () => {
+describe("maskSecrets", () => {
+  it("replaces every occurrence", () => {
     expect(maskSecrets("a SECRET b SECRET", ["SECRET", ""])).toBe("a *** b ***");
   });
 });

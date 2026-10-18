@@ -29,10 +29,7 @@ The UI lives at `/`. The JSON API is `GET /api/search?origin=LHR&country=IT&earl
 
 | Name | Default | Purpose |
 | --- | --- | --- |
-| `FLIGHT_PROVIDER` | `mock` | `mock`, `ryanair` or `amadeus`. `ryanair` needs no key. If `amadeus` is chosen without credentials the app falls back to mock and labels the response. |
-| `AMADEUS_CLIENT_ID` | none | Amadeus Self-Service API key. Server side only. |
-| `AMADEUS_CLIENT_SECRET` | none | Amadeus Self-Service API secret. Server side only. |
-| `AMADEUS_BASE_URL` | `https://test.api.amadeus.com` | Override the Amadeus host. |
+| `FLIGHT_PROVIDER` | `mock` | `mock`, `ryanair` or `ignav`. `ryanair` needs no key. If `ignav` is chosen without `IGNAV_API_KEY` the app falls back to mock and labels the response. |
 | `MAX_PROVIDER_CALLS` | `60` | Provider calls allowed per search, retries included. When it runs out the response is marked partial. |
 | `CACHE_TTL_SECONDS` | `1200` | Lifetime of cached route/date fares. |
 | `SEARCH_CONCURRENCY` | `4` (`2` for `ryanair`) | Parallel provider calls. |
@@ -77,9 +74,9 @@ docker run --rm -p 3000:3000 -e PORT=3000 country-fare-finder
 1. Push this code to a GitHub repository (done by the maintainer, not by the app).
 2. In Railway choose **New Project → Deploy from GitHub repo** and select the repository. Railway reads `railway.json` and builds with the `Dockerfile`.
 3. In the service **Variables** tab set:
-   - `FLIGHT_PROVIDER` = `mock`, `ryanair` or `amadeus`
-   - `AMADEUS_CLIENT_ID` and `AMADEUS_CLIENT_SECRET` (only for `amadeus`)
-   - optionally `AMADEUS_BASE_URL`, `MAX_PROVIDER_CALLS`, `CACHE_TTL_SECONDS`
+   - `FLIGHT_PROVIDER` = `mock`, `ryanair` or `ignav`
+   - `IGNAV_API_KEY` (only for `ignav`)
+   - optionally `MAX_PROVIDER_CALLS`, `CACHE_TTL_SECONDS`
 
    Do not set `PORT`; Railway provides it.
 4. Under **Settings → Deploy**, confirm the healthcheck path is `/api/health` (already in `railway.json`).

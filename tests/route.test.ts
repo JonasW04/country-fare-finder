@@ -43,7 +43,7 @@ describe("/api/search", () => {
 
 describe("/api/health", () => {
   it("reports provider and credential presence as a boolean only", async () => {
-    vi.stubEnv("AMADEUS_CLIENT_SECRET", "do-not-leak");
+    vi.stubEnv("IGNAV_API_KEY", "do-not-leak");
     const body = await (await health()).json();
     expect(body).toMatchObject({ status: "ok", provider: "mock", credentialsPresent: expect.any(Boolean) });
     expect(JSON.stringify(body)).not.toContain("do-not-leak");

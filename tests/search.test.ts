@@ -115,7 +115,7 @@ describe("runSearch", () => {
 
   it("reports permanent failures as partial without throwing", async () => {
     const provider = new StubProvider(() => {
-      throw new ProviderError("Amadeus Flight offers request failed with HTTP 400", 400);
+      throw new ProviderError("Stub fare request failed with HTTP 400", 400);
     });
     const res = await runSearch(request, deps(provider));
     expect(res.partial).toBe(true);
@@ -131,8 +131,8 @@ describe("runSearch", () => {
   });
 
   it("works with the mock provider and flags a fallback", async () => {
-    const res = await runSearch(request, { ...deps(new MockProvider()), requested: "amadeus", fellBack: true });
-    expect(res.provider).toEqual({ name: "mock", requested: "amadeus", fellBack: true });
+    const res = await runSearch(request, { ...deps(new MockProvider()), requested: "ignav", fellBack: true });
+    expect(res.provider).toEqual({ name: "mock", requested: "ignav", fellBack: true });
     expect(res.notes.join(" ")).toMatch(/credentials are missing/);
     expect(res.combinations.length).toBeGreaterThan(0);
   });
@@ -143,16 +143,10 @@ describe("provider selection", () => {
     expect(readProviderSelection({}).provider.name).toBe("mock");
   });
 
-  it("falls back to mock when amadeus is chosen without credentials", () => {
+  it("treats the removed amadeus value as mock", () => {
     const sel = readProviderSelection({ FLIGHT_PROVIDER: "amadeus" });
-    expect(sel).toMatchObject({ requested: "amadeus", fellBack: true, credentialsPresent: false });
+    expect(sel).toMatchObject({ requested: "mock", fellBack: false });
     expect(sel.provider.name).toBe("mock");
-  });
-
-  it("uses amadeus when credentials exist", () => {
-    const sel = readProviderSelection({ FLIGHT_PROVIDER: "amadeus", AMADEUS_CLIENT_ID: "id", AMADEUS_CLIENT_SECRET: "secret" });
-    expect(sel).toMatchObject({ fellBack: false, credentialsPresent: true });
-    expect(sel.provider.name).toBe("amadeus");
   });
 });
 
