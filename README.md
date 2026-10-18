@@ -44,7 +44,7 @@ The UI lives at `/`. The JSON API is `GET /api/search?origin=LHR&country=IT&earl
 
 ## Live fares with Ryanair (no key)
 
-Set `FLIGHT_PROVIDER=ryanair` to price real Ryanair fares from its public fare-finder endpoint (`services-api.ryanair.com/farfnd/v4/oneWayFares`). It needs no credentials and `/api/health` reports `credentialsPresent: false`. Only Ryanair routes are covered, and the endpoint is undocumented, so it can change or throttle without notice. HTTP 429, HTTP 403, empty results and an unexpected response shape are reported as partial results with a note; no fare is ever invented. `mock` remains the default.
+Set `FLIGHT_PROVIDER=ryanair` to price real Ryanair fares from its public fare-finder endpoint (`services-api.ryanair.com/farfnd/v4/oneWayFares`). It needs no credentials and `/api/health` reports `credentialsPresent: false`. With this provider `MAX_PROVIDER_CALLS` counts real HTTP requests: one country-wide request per sampled outbound date (shared by every airport) plus one request per airport covering the whole return window, so a full 41-airport search costs about 44 requests. `providerCalls` reports those requests, while `lookupsPlanned` and `lookupsSkipped` still count logical lookups. Only Ryanair routes are covered, and the endpoint is undocumented, so it can change or throttle without notice. HTTP 429, HTTP 403, empty results and an unexpected response shape are reported as partial results with a note; no fare is ever invented. `mock` remains the default.
 
 ## How a search works
 
