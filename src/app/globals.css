@@ -1,1 +1,133 @@
 @import "tailwindcss";
+
+/*
+ * Redesign tokens: quiet, map-first. One accent, used for the primary action, the selected country
+ * and the cheapest price only.
+ */
+@theme {
+  --color-bg: #f5f3ee;
+  --color-card: #ffffff;
+  --color-text: #1b2430;
+  --color-subtle: #5b6573;
+  --color-rule: #e2ded6;
+  --color-accent: #d9502a;
+  --color-accent-text: #b8401e;
+  --color-home: #2f6f6a;
+  --color-land: #e6e0d4;
+  --color-land-empty: #efebe4;
+  --color-warning: #8a5a00;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #12161c;
+    --color-card: #1a2028;
+    --color-text: #e8e6e1;
+    --color-subtle: #9aa3ae;
+    --color-rule: #2a313b;
+    --color-accent-text: #f08a66;
+    --color-home: #7cc4bc;
+    --color-land: #2c333d;
+    --color-land-empty: #20262e;
+    --color-warning: #e0b25a;
+    color-scheme: dark;
+  }
+}
+
+html {
+  background: var(--color-bg);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* The search progress bar: a third-width segment sliding across the track. */
+@keyframes progress-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
+.progress-indeterminate {
+  animation: progress-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes draw {
+  from {
+    stroke-dashoffset: 400;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.trip-arrow {
+  stroke-dasharray: 400;
+  animation: draw 0.6s ease-out both;
+}
+
+/* Map dots and labels sit in screen space and jump to the new frame; they fade in once the land has zoomed. */
+@keyframes map-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.map-overlay {
+  animation: map-fade 250ms ease-out 450ms both;
+}
+
+/* While a search runs, the airport rings brighten one after another (staggered delays set inline). */
+@keyframes map-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
+
+.map-pulse {
+  animation: map-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes confetti {
+  0% {
+    transform: translate(0, 0) rotate(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--dx), var(--dy)) rotate(var(--spin));
+    opacity: 0;
+  }
+}
+
+.confetti-bit {
+  animation: confetti 1.4s cubic-bezier(0.2, 0.7, 0.4, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  .trip-arrow {
+    stroke-dasharray: none;
+  }
+  .confetti-bit {
+    display: none;
+  }
+}

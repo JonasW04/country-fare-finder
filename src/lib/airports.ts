@@ -1,4 +1,5 @@
 import dataset from "../../data/airports.json";
+import originsData from "../../data/origins.json";
 
 export interface Airport {
   iata: string;
@@ -56,4 +57,53 @@ export function candidateAirports(
   // Sorted busiest first, so the first airport seen for a metro is its busiest one.
   const seen = new Set<string>();
   return sorted.filter((a) => !seen.has(a.metro) && seen.add(a.metro)).slice(0, limit);
+}
+
+export interface OriginAirport {
+  iata: string;
+  name: string;
+  city: string;
+  country: string;
+  lat: number;
+  lon: number;
+}
+
+// Server-only: origins.json is a few hundred KB and must not be imported into a client component.
+const origins = originsData as OriginAirport[];
+
+/** Looks in the destination dataset first, then the worldwide origin list. */
+export function findAnyAirport(iata: string): OriginAirport | undefined {
+  const code = iata.toUpperCase();
+  const known = findAirport(code) ?? origins.find((a) => a.iata === code);
+  if (!known) return undefined;
+  const { name, city, country, lat, lon } = known;
+  return { iata: known.iata, name, city, country, lat, lon };
+}
+
+function fold(text: string): string {
+  return text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+}
+
+/**
+ * Origin lookup for the search box: exact IATA first, then city prefix, then name or city
+ * substring. origins.json is written large airports first, so within one match quality the
+ * stable sort keeps a big hub ahead of a regional field.
+ */
+export function searchOrigins(q: string, limit = 8): Omit<OriginAirport, "lat" | "lon">[] {
+  const needle = fold(q.trim());
+  if (!needle) return [];
+  const scored: { airport: OriginAirport; score: number }[] = [];
+  for (const airport of origins) {
+    const city = fold(airport.city);
+    let score: number;
+    if (airport.iata.toLowerCase() === needle) score = 0;
+    else if (city.startsWith(needle)) score = 1;
+    else if (city.includes(needle) || fold(airport.name).includes(needle)) score = 2;
+    else continue;
+    scored.push({ airport, score });
+  }
+  return scored
+    .sort((a, b) => a.score - b.score)
+    .slice(0, limit)
+    .map(({ airport: { iata, name, city, country } }) => ({ iata, name, city, country }));
 }

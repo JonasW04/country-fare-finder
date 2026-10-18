@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
+import calendarFixture from "./fixtures/ignav-calendar.json";
 import fixture from "./fixtures/ignav-one-way.json";
 import { airportsForCountry, candidateAirports } from "@/lib/airports";
-import { IGNAV_ONE_WAY_URL, IgnavProvider, marketForCurrency } from "@/lib/providers/ignav";
+import { IGNAV_CALENDAR_URL, IGNAV_ONE_WAY_URL, IgnavProvider, marketForCurrency } from "@/lib/providers/ignav";
+import { ProviderError } from "@/lib/providers/types";
 import type { OfferQuery } from "@/lib/providers/types";
 import type { SearchRequest } from "@/lib/search-request";
 import { TtlCache } from "@/lib/server/cache";
 import { loadSearchConfig } from "@/lib/server/config";
 import { readProviderSelection } from "@/lib/server/provider-select";
+import { withRetry } from "@/lib/server/retry";
 import { runSearch } from "@/lib/server/search";
 import type { SearchResponse } from "@/lib/server/search";
 
@@ -165,6 +168,32 @@ const itineraryBody = (from: string, to: string, amount = 50) => ({
   ],
 });
 
+/**
+ * Answers calendar requests with a priced cell for every day of the range and one-way requests with a
+ * single itinerary, priced by route so the ranking has a clear order. No network.
+ */
+function routedFetch() {
+  const calls: Recorded[] = [];
+  const price = (from: string, to: string) => 40 + ((from.charCodeAt(0) * 7 + to.charCodeAt(1) * 3) % 50);
+  const impl: typeof fetch = async (input, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+    calls.push({ url: String(input), method: init?.method, apiKey: new Headers(init?.headers).get("X-Api-Key"), body });
+    const from = String(body.origin);
+    const to = String(body.destination);
+    if (String(input) === IGNAV_CALENDAR_URL) {
+      const range = body.departure_date_range as { start: string; end: string };
+      const days = [];
+      for (let d = range.start; d <= range.end; d = new Date(Date.parse(`${d}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)) {
+        days.push({ departure_date: d, return_date: null, status: "priced", price: { amount: price(from, to), currency: "USD", status: "unverified" }, observed_at: null });
+      }
+      return new Response(JSON.stringify({ origin: from, destination: to, days, status: "complete", cache_hit: false }), { status: 200 });
+    }
+    // Exact fares sit 10% above the calendar low, the usual direction of the gap.
+    return new Response(JSON.stringify(itineraryBody(from, to, Math.round(price(from, to) * 110) / 100)), { status: 200 });
+  };
+  return { impl, calls };
+}
+
 describe("metro queries", () => {
   it("queries the metro code and maps the real arrival airport back onto the offer", async () => {
     const { impl, calls } = stubFetch(json(itineraryBody("OSL", "CIA", 61)));
@@ -193,13 +222,8 @@ describe("metro queries", () => {
     expect(await new IgnavProvider({ apiKey: KEY, fetchImpl: impl }).searchOffers(query({ destination: "ROM" }))).toEqual([]);
   });
 
-  it("ranks a metro as one city through the search engine, whichever airport the fare lands at", async () => {
-    const impl: typeof fetch = async (input, init) => {
-      void input;
-      const { origin, destination } = JSON.parse(String(init?.body)) as { origin: string; destination: string };
-      const real = (code: string) => ({ ROM: "CIA", MIL: "LIN" })[code] ?? code;
-      return new Response(JSON.stringify(itineraryBody(real(origin), real(destination))), { status: 200 });
-    };
+  it("asks the calendar for concrete airports and still ranks metro siblings as one city", async () => {
+    const { impl, calls } = routedFetch();
     const selection = readProviderSelection({ FLIGHT_PROVIDER: "ignav", IGNAV_API_KEY: KEY });
     const res = await runSearch(
       { origin: "OSL", country: "IT", earliest: "2027-03-01", latest: "2027-03-05", minNights: 5, maxNights: 7, cabin: "ECONOMY", adults: 1, currency: "USD", limit: 100 },
@@ -208,13 +232,14 @@ describe("metro queries", () => {
         requested: "ignav",
         fellBack: false,
         cache: new TtlCache(60_000),
-        config: { ...loadSearchConfig({}, selection.defaults), backoffMs: 0 },
+        config: { ...loadSearchConfig({}, selection.defaults), backoffMs: 0, maxAirportsPerCountry: 6 },
         sleep: async () => {},
       },
     );
-    const flyIns = res.combinations.map((c) => c.flyIn);
-    expect(flyIns).toContainEqual(expect.objectContaining({ iata: "CIA", metro: "ROM" }));
-    expect(flyIns).toContainEqual(expect.objectContaining({ iata: "LIN", metro: "MIL" }));
+    // A calendar cell cannot say which airport of a metro it priced, so metro codes are never sent to it.
+    const calendarCodes = calls.filter((c) => c.url === IGNAV_CALENDAR_URL).flatMap((c) => [c.body.origin, c.body.destination]);
+    expect(calendarCodes.some((code) => code === "ROM" || code === "MIL" || code === "PAR")).toBe(false);
+    expect(res.combinations.map((c) => c.flyIn)).toContainEqual(expect.objectContaining({ iata: "FCO", metro: "ROM" }));
     expect(res.partial).toBe(false);
   });
 });
@@ -257,23 +282,24 @@ describe("Ignav through the search engine", () => {
       sleep: async () => {},
     });
 
-  const priced = () =>
-    stubFetch((): Response => new Response(JSON.stringify(fixture), { status: 200 }));
-
-  it("costs at most 30 requests for a 41-airport country under default config", async () => {
+  it("defaults to the 12 busiest metros, one calendar per direction, and exact prices for the top 5", async () => {
     expect(airportsForCountry("IT")).toHaveLength(41);
-    const { impl, calls } = priced();
+    expect(selection.defaults).toEqual({ maxAirportsPerCountry: 12, verifyTop: 5, maxProviderCalls: 100 });
+    const { impl, calls } = routedFetch();
     const res = await run(impl);
 
-    expect(res.candidateAirports).toBe(6);
-    // Top six by traffic: Rome and Milan each take one slot and are queried by metro code.
-    expect(candidateAirports("IT", [], 6, true).map((a) => a.iata)).toEqual(["FCO", "MXP", "NAP", "VCE", "CTA", "BLQ"]);
-    const outbound = calls.filter((c) => c.body.origin === "OSL").map((c) => c.body.destination);
-    expect([...new Set(outbound)]).toEqual(["ROM", "MIL", "NAP", "VCE", "CTA", "BLQ"]);
-    expect(defaults.maxDatesPerLeg).toBe(2);
-    expect(calls.length).toBe(24);
-    expect(calls.length).toBeLessThanOrEqual(30);
+    expect(res.candidateAirports).toBe(12);
+    const calendars = calls.filter((c) => c.url === IGNAV_CALENDAR_URL);
+    const outbound = calendars.filter((c) => c.body.origin === "OSL").map((c) => c.body.destination);
+    expect(outbound.slice(0, 6)).toEqual(["FCO", "MXP", "NAP", "VCE", "CTA", "BLQ"]);
+    // The 5-day window and the 7-day return window (03-06..03-12) each fit one calendar request.
+    expect(calendars).toHaveLength(24);
+    const exact = calls.filter((c) => c.url === IGNAV_ONE_WAY_URL);
+    expect(exact.length).toBeGreaterThan(0);
+    expect(exact.length).toBeLessThanOrEqual(10);
     expect(res.providerCalls).toBe(calls.length);
+    expect(res.providerCalls).toBeLessThanOrEqual(34);
+    expect(res.verifiedCombinations).toBe(5);
     expect(res.partial).toBe(false);
   });
 
@@ -290,7 +316,7 @@ describe("Ignav through the search engine", () => {
     expect(calls).toHaveLength(1);
     expect(res.partial).toBe(true);
     expect(res.lookupsSkipped).toBe(res.lookupsPlanned);
-    expect(res.notes.join(" ")).toContain("Ignav free quota (1000 requests/month) is used up");
+    expect(res.notes.join(" ")).toContain("Ignav billing is required: the one-time 1,000 free requests are used up");
   });
 
   it("keeps what it priced before the quota ran out", async () => {
@@ -299,7 +325,7 @@ describe("Ignav through the search engine", () => {
     const res = await run(impl, { concurrency: 1 });
     expect(calls).toHaveLength(3);
     expect(res.partial).toBe(true);
-    expect(res.notes.join(" ")).toMatch(/free quota/);
+    expect(res.notes.join(" ")).toMatch(/billing is required/);
   });
 
   it("gives one clear note for a 401 without retrying", async () => {
@@ -341,11 +367,111 @@ describe("Ignav through the search engine", () => {
     }
   });
 
+  it("stops at once on a monthly spending limit 429 instead of retrying", async () => {
+    const { impl, calls } = stubFetch(apiError(429, "monthly_spend_limit_reached"));
+    const res = await run(impl, { concurrency: 1, maxProviderCalls: 5 });
+
+    expect(calls).toHaveLength(1);
+    expect(res.partial).toBe(true);
+    expect(res.lookupsSkipped).toBe(res.lookupsPlanned);
+    expect(res.notes.join(" ")).toContain("Ignav monthly spending limit reached.");
+  });
+
+  it("retries a 424 unable_to_complete_request but not unsupported_search", async () => {
+    // Driven through withRetry directly so the count does not depend on how many lookups the engine plans.
+    const attempts = async (code: string) => {
+      const { impl, calls } = stubFetch(apiError(424, code));
+      const provider = new IgnavProvider({ apiKey: KEY, fetchImpl: impl });
+      await withRetry(() => provider.searchOffers(query()), { retries: 2, baseDelayMs: 0, sleep: async () => {} }).catch(() => {});
+      return calls.length;
+    };
+    expect(await attempts("unable_to_complete_request")).toBe(3);
+    expect(await attempts("unsupported_search")).toBe(1);
+  });
+
   it("falls back to mock, labelled, when ignav is selected without a key", () => {
     const sel = readProviderSelection({ FLIGHT_PROVIDER: "ignav" });
     expect(sel).toMatchObject({ requested: "ignav", fellBack: true, credentialsPresent: false });
     expect(sel.provider.name).toBe("mock");
     expect(selection).toMatchObject({ fellBack: false, credentialsPresent: true });
     expect(selection.provider.name).toBe("ignav");
+  });
+});
+
+describe("Ignav fare calendar", () => {
+  const ranged = (over: Partial<OfferQuery> = {}) => query({ currency: "EUR", dateTo: "2026-12-10", ...over });
+
+  it("posts the window to the calendar endpoint with exactly the documented keys", async () => {
+    const { impl, calls } = stubFetch(json(calendarFixture));
+    let requests = 0;
+    await new IgnavProvider({ apiKey: KEY, fetchImpl: impl }).searchOffers(ranged(), { onRequest: () => requests++ });
+
+    const call = firstCall(calls);
+    expect(call.url).toBe(IGNAV_CALENDAR_URL);
+    expect(call.method).toBe("POST");
+    expect(call.apiKey).toBe(KEY);
+    expect(call.body).toEqual({
+      origin: "OSL",
+      destination: "FCO",
+      departure_date_range: { start: "2026-11-20", end: "2026-12-10" },
+      adults: 1,
+      cabin_class: "economy",
+      market: "DE",
+    });
+    expect(call.body).not.toHaveProperty("stay_days");
+    expect(requests).toBe(1);
+  });
+
+  it("declares a 31-day per-day range", () => {
+    expect(new IgnavProvider({ apiKey: KEY }).range).toEqual({ maxDays: 31, perDay: true });
+  });
+
+  it("keeps only priced days as carrier-less estimates", async () => {
+    const { impl } = stubFetch(json(calendarFixture));
+    const offers = await new IgnavProvider({ apiKey: KEY, fetchImpl: impl }).searchOffers(ranged());
+    expect(offers).toEqual([
+      { origin: "OSL", destination: "FCO", date: "2026-11-20", price: 97, currency: "EUR", carriers: [], estimate: true },
+      { origin: "OSL", destination: "FCO", date: "2026-11-22", price: 84.5, currency: "EUR", carriers: [], estimate: true },
+    ]);
+  });
+
+  it("reports a changed calendar shape as a limitation", async () => {
+    const { impl } = stubFetch(json({ days: [{ departure_date: "2026-11-20", status: "priced", price: { amount: "97" } }] }));
+    await expect(new IgnavProvider({ apiKey: KEY, fetchImpl: impl }).searchOffers(ranged())).rejects.toThrow(/expected shape/);
+  });
+
+  it("still uses the one-way endpoint without dateTo", async () => {
+    const { impl, calls } = stubFetch(json(fixture));
+    await new IgnavProvider({ apiKey: KEY, fetchImpl: impl }).searchOffers(query());
+    expect(firstCall(calls).url).toBe(IGNAV_ONE_WAY_URL);
+  });
+
+  it("refuses a metro code for a range query, without a request", async () => {
+    const { impl, calls } = stubFetch(json(calendarFixture));
+    const provider = new IgnavProvider({ apiKey: KEY, fetchImpl: impl });
+    for (const over of [{ destination: "ROM" }, { origin: "PAR" }]) {
+      const err = await provider.searchOffers(ranged(over)).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ProviderError);
+      expect(err).toMatchObject({ status: 400, stopsSearch: false });
+      expect(String((err as Error).message)).toMatch(/concrete airport/);
+    }
+    expect(calls).toHaveLength(0);
+  });
+
+  it("explains a 402 as billing, and keeps the key out of every calendar error", async () => {
+    const provider = (status: number, code: string) =>
+      new IgnavProvider({
+        apiKey: KEY,
+        fetchImpl: stubFetch(() => new Response(JSON.stringify({ error: { code: `${code}-${KEY}`, message: `key ${KEY}` } }), { status })).impl,
+      });
+    const billing = await provider(402, "billing_required").searchOffers(ranged()).catch((e: unknown) => e);
+    expect(billing).toMatchObject({ status: 402, stopsSearch: true });
+    expect((billing as Error).message).toBe(
+      "Ignav billing is required: the one-time 1,000 free requests are used up or billing is blocked.",
+    );
+    for (const [status, code] of [[429, "monthly_spend_limit_reached"], [424, "unable_to_complete_request"], [424, "unsupported_search"], [401, "x"]] as const) {
+      const err = await provider(status, code).searchOffers(ranged()).catch((e: unknown) => e);
+      expect(String((err as Error).message)).not.toContain(KEY);
+    }
   });
 });

@@ -4,7 +4,7 @@ export interface OfferQuery {
   destination: string;
   /** ISO date (YYYY-MM-DD) of the one-way departure. */
   date: string;
-  /** Last day of a departure window starting at `date`; only sent to providers with `rangeQueries`. */
+  /** Last day of a departure window starting at `date`; only sent to providers with `range`. */
   dateTo?: string;
   cabin: string;
   adults: number;
@@ -18,6 +18,11 @@ export interface Offer {
   price: number;
   currency: string;
   carriers: string[];
+  /**
+   * True when the price is a fare-calendar low (cheapest observed quote for the day) rather than a
+   * quoted itinerary. Such offers have no carriers; an exact re-check may replace them.
+   */
+  estimate?: boolean;
   /** Set only when the itinerary needs separate tickets, which carries real risk for the traveller. */
   requiresSelfTransfer?: boolean;
   /** Providers rarely supply a deep link; the search layer fills one in when absent. */
@@ -38,12 +43,20 @@ export interface SearchOptions {
   onNote?: (message: string) => void;
 }
 
+export interface RangeSupport {
+  maxDays: number;
+  perDay: boolean;
+}
+
 export interface FlightProvider {
   readonly name: string;
   /** True when the provider reports each HTTP request through `onRequest` (it may share requests between lookups). */
   readonly meteredRequests?: boolean;
-  /** True when one query can cover a window (`dateTo`), so return legs need one request per airport, not per date. */
-  readonly rangeQueries?: boolean;
+  /**
+   * Set when one query can cover a departure window (`dateTo`). `maxDays` caps the window length;
+   * `perDay` says the answer holds a fare for every priced day, not just the window's cheapest one.
+   */
+  readonly range?: RangeSupport;
   /**
    * Code to query for a candidate city airport, when one request can cover its whole metro.
    * The provider maps the real airport back onto each offer it returns.

@@ -19,6 +19,8 @@ const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(r
 
 export function isRetryable(err: unknown): boolean {
   if (!(err instanceof ProviderError) || err.status === undefined) return false;
+  // A search-stopping error (spend limit, rejected key) cannot succeed on retry whatever its status.
+  if (err.stopsSearch) return false;
   return err.status === 429 || err.status >= 500;
 }
 

@@ -31,6 +31,7 @@ const config: SearchConfig = {
   maxProviderCalls: 1000,
   cacheTtlMs: 60_000,
   maxDatesPerLeg: 2,
+  verifyTop: 0,
 };
 
 /** Counts calls and prices every route deterministically. */
