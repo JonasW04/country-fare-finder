@@ -3,12 +3,14 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import type { SearchResponse } from "@/lib/server/search";
 import { localToday, surpriseWindow } from "../lib/date-presets";
-import { defaultForm, formFromParams, linkHasSearch, originCodeFromText, paramsFromForm, type SearchForm } from "../lib/search-form";
+import { originCodeFromInput } from "../lib/origin-input";
+import { defaultForm, formFromParams, linkHasSearch, paramsFromForm, type SearchForm } from "../lib/search-form";
 import type { CountryOption } from "../lib/types";
 import { ResultsView } from "./results-view";
 import { SearchLoading } from "./search-loading";
 import { SearchSentence } from "./search-sentence";
 import { parseStoredOrigin, rememberOrigin, useStoredOriginRaw } from "./stored-origin";
+import { labelForCode, useAirportSuggestions } from "./use-airport-suggestions";
 
 type Status =
   | { kind: "idle" }
@@ -60,6 +62,16 @@ export function FareFinder({ countries, initialParams, today }: Props) {
 
   const stored = parseStoredOrigin(useStoredOriginRaw());
   const originText = typedOrigin ?? stored?.label ?? "";
+  const originItems = useAirportSuggestions(originText);
+
+  // A link carries only the code; show "London Stansted · STN" unless the traveller has typed since.
+  function showLabelFor(code: string) {
+    void labelForCode(code).then((label) => setTypedOrigin((text) => (text === code ? label : text)));
+  }
+  const showLinkedLabel = useEffectEvent(showLabelFor);
+  useEffect(() => {
+    if (linked && initialParams.origin) showLinkedLabel(initialParams.origin.trim().toUpperCase());
+  }, [linked, initialParams.origin]);
 
   function apply(next: SearchForm, outcome: Outcome) {
     if (outcome.kind === "invalid") {
@@ -101,7 +113,29 @@ export function FareFinder({ countries, initialParams, today }: Props) {
     void fetchResults(next);
   }
 
-  const current = { ...form, origin: originCodeFromText(originText) };
+  const current = { ...form, origin: originCodeFromInput(originText, originItems) };
+
+  // Back and Forward restore the search the address names, without pushing a new history entry.
+  const restore = useEffectEvent(() => {
+    const params = Object.fromEntries(new URLSearchParams(window.location.search));
+    if (!linkHasSearch(params)) {
+      inFlight.current?.abort();
+      setStatus({ kind: "idle" });
+      return;
+    }
+    const next = formFromParams(params, defaultForm(today, fallbackCountry));
+    setErrors([]);
+    setForm(next);
+    setTypedOrigin(next.origin);
+    showLabelFor(next.origin);
+    setStatus({ kind: "loading", form: next });
+    fetchResults(next);
+  });
+  useEffect(() => {
+    const onPop = () => restore();
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   function surprise() {
     const others = countries.filter((c) => c.code !== form.country);
@@ -140,6 +174,7 @@ export function FareFinder({ countries, initialParams, today }: Props) {
               update={(patch) => setForm((f) => ({ ...f, ...patch }))}
               originText={originText}
               onOriginText={setTypedOrigin}
+              originItems={originItems}
               countries={countries}
               errors={errors}
               busy={busy}

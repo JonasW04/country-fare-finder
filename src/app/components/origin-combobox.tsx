@@ -1,63 +1,30 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 import { flagEmoji } from "../lib/flags";
-
-interface Suggestion {
-  iata: string;
-  name: string;
-  city: string;
-  country: string;
-}
-
-function isSuggestionList(value: unknown): value is Suggestion[] {
-  return (
-    Array.isArray(value) &&
-    value.every((v) => typeof v === "object" && v !== null && typeof (v as Suggestion).iata === "string")
-  );
-}
-
-export const originLabel = (s: { city: string; iata: string }) => `${s.city} · ${s.iata}`;
+import { originLabel, type OriginSuggestion } from "../lib/origin-input";
 
 interface Props {
   id: string;
   text: string;
   onText: (text: string) => void;
+  /** Suggestions for the current text, fetched by the parent (see useAirportSuggestions). */
+  items: OriginSuggestion[];
   label: string;
   className?: string;
 }
 
 /**
- * ARIA 1.2 combobox over GET /api/airports. While that endpoint is missing or failing the list just
- * stays empty and a typed three-letter code is accepted as the origin.
+ * ARIA 1.2 combobox over the airport suggestions. While GET /api/airports is missing or failing the
+ * list just stays empty and a typed three-letter code is accepted as the origin.
  */
-export function OriginCombobox({ id, text, onText, label, className = "" }: Props) {
+export function OriginCombobox({ id, text, onText, items, label, className = "" }: Props) {
   const listId = useId();
-  const [results, setResults] = useState<{ query: string; items: Suggestion[] }>({ query: "", items: [] });
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
-  const query = text.trim();
-  const searchable = query.length >= 2 && !query.includes("·");
-
-  useEffect(() => {
-    if (!searchable) return;
-    const controller = new AbortController();
-    const timer = setTimeout(() => {
-      fetch(`/api/airports?q=${encodeURIComponent(query)}`, { signal: controller.signal })
-        .then((res) => (res.ok ? res.json() : []))
-        .then((body: unknown) => setResults({ query, items: isSuggestionList(body) ? body.slice(0, 8) : [] }))
-        .catch(() => undefined);
-    }, 200);
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [query, searchable]);
-
-  const items = searchable && results.query === query ? results.items : [];
   const expanded = open && items.length > 0;
 
-  function pick(s: Suggestion) {
+  function pick(s: OriginSuggestion) {
     onText(originLabel(s));
     setOpen(false);
     setActive(-1);
@@ -73,9 +40,10 @@ export function OriginCombobox({ id, text, onText, label, className = "" }: Prop
       setOpen(true);
       setActive((i) => (i <= 0 ? items.length - 1 : i - 1));
     } else if (e.key === "Enter" && expanded) {
-      const chosen = items[active];
+      // With nothing highlighted, Enter takes the first match: typing "oslo" then Enter means Oslo.
+      const chosen = items[active] ?? items[0];
       if (chosen) {
-        // Enter picks the highlighted airport instead of submitting the search.
+        // Enter picks an airport instead of submitting the search.
         e.preventDefault();
         pick(chosen);
       }
