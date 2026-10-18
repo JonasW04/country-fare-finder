@@ -114,7 +114,7 @@ export function CountryCombobox({ id, countries, value, onChange, describedBy }:
             <span aria-hidden>{flagEmoji(c.code)}</span>
             <span className="min-w-0 flex-1 truncate">{c.name}</span>
             <span className="text-xs text-subtle tabular-nums">
-              {c.airports.length} {c.airports.length === 1 ? "airport" : "airports"}
+              {c.airportCount} {c.airportCount === 1 ? "airport" : "airports"}
             </span>
           </li>
         ))}

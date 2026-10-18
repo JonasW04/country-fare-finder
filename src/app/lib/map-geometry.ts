@@ -74,12 +74,26 @@ export function insideFrame(p: Point, width: number, height: number, inset: numb
   return p[0] >= inset && p[0] <= width - inset && p[1] >= inset && p[1] <= height - inset;
 }
 
+/**
+ * On-screen direction from `a` to `b` in degrees clockwise from up. The world map's Equal Earth
+ * projection does not keep angles, so a compass bearing would not point at where a city is drawn.
+ */
+export function screenBearing(a: Point, b: Point): number {
+  return (Math.atan2(b[0] - a[0], -(b[1] - a[1])) * 180) / Math.PI;
+}
+
 /** Pins an off-map point to the frame edge along the line from the frame centre, so it still points the right way. */
 export function pinToFrame(p: Point, width: number, height: number, inset: number): Point {
   if (insideFrame(p, width, height, inset)) return p;
   const c: Point = [width / 2, height / 2];
-  const bearing = (Math.atan2(p[0] - c[0], -(p[1] - c[1])) * 180) / Math.PI;
-  return edgePoint(c, bearing, width, height, inset);
+  return edgePoint(c, screenBearing(c, p), width, height, inset);
+}
+
+/** Quadratic curve between two points that bows to one side, so in and out lines do not overlap. */
+export function curvePath(a: Point, b: Point, bow: number): string {
+  const mx = (a[0] + b[0]) / 2 - (b[1] - a[1]) * bow;
+  const my = (a[1] + b[1]) / 2 + (b[0] - a[0]) * bow;
+  return `M ${a[0]} ${a[1]} Q ${mx} ${my} ${b[0]} ${b[1]}`;
 }
 
 /** Tenth-of-a-pixel precision: finer than any screen, and server and client floats agree at hydration. */

@@ -1,4 +1,4 @@
-import { countryOptions } from "./country-options";
+import { countryAnchors, countryOptions } from "./country-options";
 import { FareFinder } from "./components/fare-finder";
 
 export const dynamic = "force-dynamic";
@@ -18,5 +18,5 @@ export default async function Home({ searchParams }: { searchParams: Promise<Par
   const params = firstValues(await searchParams);
   // Server and client must agree on the default dates during hydration, so today comes from here.
   const today = new Date().toISOString().slice(0, 10);
-  return <FareFinder countries={countryOptions()} initialParams={params} today={today} />;
+  return <FareFinder countries={countryOptions()} anchors={countryAnchors()} initialParams={params} today={today} />;
 }

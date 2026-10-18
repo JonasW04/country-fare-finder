@@ -1,62 +1,26 @@
-"use client";
-
-import type { Combination } from "@/lib/ranking";
-import type { SearchResponse } from "@/lib/server/search";
-import { mapAirports, originLocation } from "../lib/map-data";
-import { visibleTrips } from "../lib/results";
-import type { SearchForm } from "../lib/search-form";
-import type { CountryOption } from "../lib/types";
-import { FareMap } from "./fare-map";
-import { PriceCalendar } from "./price-calendar";
-import { ResultsView } from "./results-view";
+import type { ReactNode } from "react";
 
 interface Props {
-  response: SearchResponse;
-  countries: CountryOption[];
-  country: CountryOption | undefined;
-  originLabel: string;
-  focusedTrip: Combination | null;
-  onFocusTrip: (trip: Combination | null) => void;
-  selectedMetro: string | null;
-  onSelectMetro: (metro: string | null) => void;
-  onWiden: (patch: Partial<SearchForm>) => void;
+  map: ReactNode;
+  /** Under the map: the idle hint, or the price calendar once there are results. */
+  under: ReactNode;
+  /** The right column; null before any search, when the map takes the full width. */
+  side: ReactNode | null;
 }
 
-/** Map and calendar on the left, the trip list on the right; one column on phones. */
-export function ResultsLayout(props: Props) {
-  const { response, country, focusedTrip, selectedMetro } = props;
-  const req = response.request;
-  const countryName = country?.name ?? req.country;
-  // With no card hovered the map still draws a trip: the cheapest one the list is showing.
-  const mapTrip = focusedTrip ?? visibleTrips(response.combinations, "all", "price", selectedMetro)[0] ?? null;
-
+/**
+ * Before a search the map is the page; after one, map and calendar on the left and the trip list on
+ * the right (one column on phones). The map keeps its place in the tree in both, so React keeps the
+ * same instance and its zoom carries over instead of starting again from the world.
+ */
+export function ResultsLayout({ map, under, side }: Props) {
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,58fr)_minmax(0,42fr)]">
-      <div className="min-w-0 space-y-4 lg:sticky lg:top-[72px] lg:self-start">
-        <div className="rounded-lg border border-rule bg-card p-3">
-          <FareMap
-            countryCode={req.country}
-            countryName={countryName}
-            airports={mapAirports(response, country?.airports ?? [])}
-            origin={originLocation(response, props.countries.flatMap((c) => c.airports))}
-            trip={mapTrip}
-            currency={req.currency}
-            selectedMetro={selectedMetro}
-            onSelectMetro={props.onSelectMetro}
-          />
-        </div>
-        {response.outboundCalendar.length > 0 ? <PriceCalendar days={response.outboundCalendar} currency={req.currency} /> : null}
+    <div className={side ? "grid gap-4 lg:grid-cols-[minmax(0,58fr)_minmax(0,42fr)]" : ""}>
+      <div className={side ? "min-w-0 space-y-4 lg:sticky lg:top-[72px] lg:self-start" : "space-y-3"}>
+        {map}
+        {under}
       </div>
-      <div className="min-w-0">
-        <ResultsView
-          response={response}
-          countryName={countryName}
-          originLabel={props.originLabel}
-          selectedMetro={selectedMetro}
-          onClearMetro={() => props.onSelectMetro(null)}
-          onFocusTrip={props.onFocusTrip}
-          onWiden={props.onWiden}        />
-      </div>
+      {side ? <div className="min-w-0">{side}</div> : null}
     </div>
   );
 }

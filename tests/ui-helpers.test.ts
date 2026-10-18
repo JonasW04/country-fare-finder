@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { inTwoWeeks, localToday, nextMonth, nextWeekend, surpriseWindow } from "@/app/lib/date-presets";
 import { flagEmoji } from "@/app/lib/flags";
 import { formatDay, formatMoney, formatSpan, weekdayLetter } from "@/app/lib/format";
-import { bearingDeg, edgePoint, pinToFrame, splitOutliers } from "@/app/lib/map-geometry";
+import { bearingDeg, edgePoint, pinToFrame, screenBearing, splitOutliers } from "@/app/lib/map-geometry";
+import { placeLabels } from "@/app/lib/map-labels";
+import { airportBox, applyTransform, fitTransform, projectBox } from "@/app/lib/map-view";
 import { priceColor, priceRatio, priceTercile } from "@/app/lib/price-scale";
 import { openJawSaving, visibleTrips } from "@/app/lib/results";
 import { originCodeFromInput, originLabel } from "@/app/lib/origin-input";
@@ -131,6 +133,74 @@ describe("map geometry", () => {
     const pinned = pinToFrame([-200, 50], 100, 100, 10);
     expect(pinned[0]).toBeCloseTo(10);
     expect(pinned[1]).toBeCloseTo(50);
+  });
+});
+
+describe("map view", () => {
+  const usMainland = [
+    { lat: 40.64, lon: -73.78 },
+    { lat: 33.94, lon: -118.41 },
+    { lat: 41.98, lon: -87.9 },
+    { lat: 25.79, lon: -80.29 },
+    { lat: 47.45, lon: -122.31 },
+    { lat: 32.9, lon: -97.04 },
+    { lat: 39.86, lon: -104.67 },
+    { lat: 33.64, lon: -84.43 },
+  ];
+
+  it("frames a country's airports without its far territories", () => {
+    const box = airportBox([...usMainland, { lat: 21.32, lon: -157.92 }, { lat: 61.17, lon: -150 }]);
+    expect(box).toEqual({ west: -122.31, south: 25.79, east: -73.78, north: 47.45 });
+  });
+
+  it("gives a one-airport country a box wide enough to see", () => {
+    const box = airportBox([{ lat: 35.86, lon: 14.48 }]);
+    expect(box?.east && box.west ? box.east - box.west : 0).toBeCloseTo(3);
+    expect(airportBox([])).toBeNull();
+  });
+
+  it("samples box edges so a bulging projected edge is not cut off", () => {
+    // A projection that bows the top edge upwards in the middle, like Equal Earth does to parallels.
+    const bow = ([lon, lat]: [number, number]): [number, number] => [lon, 0 - lat - (lat === 10 ? 5 - Math.abs(lon - 5) : 0)];
+    expect(projectBox(bow, { west: 0, south: 0, east: 10, north: 10 })).toEqual([
+      [0, -15],
+      [10, 0],
+    ]);
+  });
+
+  it("fits and centres bounds in the frame", () => {
+    const t = fitTransform([[0, 0], [100, 50]], 400, 400, 0);
+    expect(t.k).toBe(4);
+    expect(applyTransform(t, [50, 25])).toEqual([200, 200]);
+  });
+
+  it("measures on-screen direction clockwise from up", () => {
+    expect(screenBearing([0, 0], [0, -1])).toBeCloseTo(0);
+    expect(screenBearing([0, 0], [1, 0])).toBeCloseTo(90);
+  });
+});
+
+describe("map labels", () => {
+  it("keeps priority order, flips a crowded label left and drops one with no room", () => {
+    const placed = placeLabels(
+      [
+        { id: "a", p: [100, 100], text: "Rome" },
+        { id: "b", p: [110, 102], text: "Pisa" },
+        { id: "c", p: [105, 101], text: "Ciampino" },
+      ],
+      8,
+      400,
+    );
+    expect(placed).toEqual([
+      { id: "a", side: "right" },
+      { id: "b", side: "left" },
+    ]);
+  });
+
+  it("flips a label left at the right edge and stops at the cap", () => {
+    expect(placeLabels([{ id: "a", p: [395, 50], text: "Bari" }], 8, 400)).toEqual([{ id: "a", side: "left" }]);
+    const many = Array.from({ length: 12 }, (_, i) => ({ id: String(i), p: [20, 20 + i * 30] as [number, number], text: "City" }));
+    expect(placeLabels(many, 8, 400)).toHaveLength(8);
   });
 });
 

@@ -7,8 +7,12 @@ import { localToday, surpriseWindow } from "../lib/date-presets";
 import { MISSING_ORIGIN } from "../lib/field-errors";
 import { originCodeFromInput } from "../lib/origin-input";
 import { defaultForm, formFromParams, linkHasSearch, paramsFromForm, type SearchForm } from "../lib/search-form";
-import type { CountryOption } from "../lib/types";
+import { visibleTrips } from "../lib/results";
+import type { CountryAnchors, CountryOption } from "../lib/types";
+import { CountryMap } from "./country-map";
+import { PriceCalendar } from "./price-calendar";
 import { ResultsLayout } from "./results-layout";
+import { ResultsView } from "./results-view";
 import { SearchBar } from "./search-bar";
 import { SearchLoading } from "./search-loading";
 import { parseStoredOrigin, rememberOrigin, useStoredOriginRaw } from "./stored-origin";
@@ -23,6 +27,7 @@ type Status =
 
 interface Props {
   countries: CountryOption[];
+  anchors: CountryAnchors;
   initialParams: Record<string, string>;
   today: string;
 }
@@ -52,7 +57,7 @@ async function requestSearch(form: SearchForm, signal: AbortSignal): Promise<Out
   }
 }
 
-export function FareFinder({ countries, initialParams, today }: Props) {
+export function FareFinder({ countries, anchors, initialParams, today }: Props) {
   const fallbackCountry = countries.find((c) => c.code === "IT")?.code ?? countries[0]?.code ?? "";
   const linked = linkHasSearch(initialParams);
   const [form, setForm] = useState(() => formFromParams(initialParams, defaultForm(today, fallbackCountry)));
@@ -158,9 +163,46 @@ export function FareFinder({ countries, initialParams, today }: Props) {
     start({ ...current, country: pick.code, earliest: w.earliest, latest: w.latest });
   }
 
+  // Results belong to one country: choosing another on the map or in the search bar clears them.
+  function update(patch: Partial<SearchForm>) {
+    if (patch.country !== undefined && patch.country !== form.country && status.kind !== "idle") {
+      inFlight.current?.abort();
+      setFocusedTrip(null);
+      setSelectedMetro(null);
+      setStatus({ kind: "idle" });
+    }
+    setForm((f) => ({ ...f, ...patch }));
+  }
+
   const busy = status.kind === "loading";
   const country = (code: string) => countries.find((c) => c.code === code);
   const loadingCountry = status.kind === "loading" ? country(status.form.country) : undefined;
+  const response = status.kind === "done" ? status.response : null;
+  // With no card hovered the map still draws a trip: the cheapest one the list is showing.
+  const mapTrip = response ? (focusedTrip ?? visibleTrips(response.combinations, "all", "price", selectedMetro)[0] ?? null) : null;
+
+  const side =
+    status.kind === "loading" ? (
+      loadingCountry ? <SearchLoading form={status.form} country={loadingCountry} /> : null
+    ) : status.kind === "failed" ? (
+      <div role="alert" className="flex flex-wrap items-center gap-3">
+        <p>The flight data source did not answer in time; a second try usually works.</p>
+        <button type="button" onClick={() => start(status.form)} className="h-9 rounded-lg border border-rule bg-card px-3 font-medium hover:border-subtle">
+          Try again
+        </button>
+      </div>
+    ) : status.kind === "done" ? (
+      <ResultsView
+        response={status.response}
+        countryName={country(status.form.country)?.name ?? status.response.request.country}
+        originLabel={originText}
+        selectedMetro={selectedMetro}
+        onClearMetro={() => setSelectedMetro(null)}
+        onFocusTrip={setFocusedTrip}
+        onWiden={(patch) => start({ ...status.form, ...patch })}
+      />
+    ) : null;
+
 
   return (
     <>
@@ -168,7 +210,7 @@ export function FareFinder({ countries, initialParams, today }: Props) {
       <div className="mx-auto max-w-[1200px] px-4 pt-4">
         <SearchBar
           form={form}
-          update={(patch) => setForm((f) => ({ ...f, ...patch }))}
+          update={update}
           originText={originText}
           onOriginText={setTypedOrigin}
           originItems={originItems}
@@ -181,31 +223,30 @@ export function FareFinder({ countries, initialParams, today }: Props) {
       </div>
 
       <main ref={results} className="mx-auto max-w-[1200px] scroll-mt-[72px] px-4 pt-4 pb-16">
-        {status.kind === "loading" && loadingCountry ? <SearchLoading form={status.form} country={loadingCountry} /> : null}
-        {status.kind === "failed" ? (
-          <div role="alert" className="flex flex-wrap items-center gap-3">
-            <p>The flight data source did not answer in time; a second try usually works.</p>
-            <button type="button" onClick={() => start(status.form)} className="h-9 rounded-lg border border-rule bg-card px-3 font-medium hover:border-subtle">
-              Try again
-            </button>
-          </div>
-        ) : null}
-        {status.kind === "done" ? (
-          <ResultsLayout
-            response={status.response}
-            countries={countries}
-            country={country(status.form.country)}
-            originLabel={originText}
-            focusedTrip={focusedTrip}
-            onFocusTrip={setFocusedTrip}
-            selectedMetro={selectedMetro}
-            onSelectMetro={setSelectedMetro}
-            onWiden={(patch) => start({ ...status.form, ...patch })}
-          />
-        ) : null}
-        {status.kind === "idle" ? (
-          <p className="text-subtle">Pick a country and dates, then search. Open-jaw trips, into one city and home from another, are often cheaper.</p>
-        ) : null}
+        <ResultsLayout
+          map={
+            <CountryMap
+              countries={countries}
+              anchors={anchors}
+              country={form.country}
+              onPickCountry={(code) => update({ country: code })}
+              phase={status.kind === "idle" ? "idle" : status.kind === "done" ? "done" : "loading"}
+              response={response}
+              trip={mapTrip}
+              selectedMetro={selectedMetro}
+              onSelectMetro={setSelectedMetro}
+              frameClass={status.kind === "idle" ? "h-[320px] sm:h-[520px]" : "h-[320px] lg:h-[440px]"}
+            />
+          }
+          under={
+            status.kind === "idle" ? (
+              <p className="text-sm text-subtle">Pick a country on the map or in the search bar, choose dates, then search. Open-jaw trips, into one city and home from another, are often cheaper.</p>
+            ) : response && response.outboundCalendar.length > 0 ? (
+              <PriceCalendar days={response.outboundCalendar} currency={response.request.currency} />
+            ) : null
+          }
+          side={status.kind === "idle" ? null : <div>{side}</div>}
+        />
       </main>
     </>
   );

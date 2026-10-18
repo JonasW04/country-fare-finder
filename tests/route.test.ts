@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { GET as countryAirports } from "@/app/api/country-airports/route";
 import { GET as health } from "@/app/api/health/route";
 import { GET, POST } from "@/app/api/search/route";
 import { addDays } from "@/lib/dates";
@@ -38,6 +39,28 @@ describe("/api/search", () => {
     const res = await GET(new Request("http://test/api/search?origin=X&country=ZZ"));
     expect(res.status).toBe(400);
     expect((await res.json()).errors.length).toBeGreaterThan(0);
+  });
+});
+
+describe("/api/country-airports", () => {
+  const fetchList = (country: string) => countryAirports(new Request(`http://test/api/country-airports?country=${country}`));
+
+  it("returns the airports a search would price, busiest first, one per metro", async () => {
+    vi.stubEnv("MAX_AIRPORTS_PER_COUNTRY", "4");
+    const res = await fetchList("it");
+    expect(res.status).toBe(200);
+    const body: { iata: string; city: string; metro: string; lat: number; lon: number }[] = await res.json();
+    expect(body).toHaveLength(4);
+    expect(body[0]).toMatchObject({ iata: "FCO", metro: "ROM", city: expect.any(String), lat: expect.any(Number), lon: expect.any(Number) });
+    expect(new Set(body.map((a) => a.metro)).size).toBe(body.length);
+  });
+
+  it("rejects an unknown or missing country with 400 and messages", async () => {
+    for (const country of ["ZZ", "", "toString"]) {
+      const res = await fetchList(country);
+      expect(res.status).toBe(400);
+      expect((await res.json()).errors.length).toBeGreaterThan(0);
+    }
   });
 });
 
