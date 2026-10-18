@@ -1,0 +1,135 @@
+{
+  "origin": "OSL",
+  "destination": "FCO",
+  "departure_date": "2026-11-20",
+  "itineraries": [
+    {
+      "price": {
+        "amount": 97.0,
+        "currency": "USD",
+        "status": "verified"
+      },
+      "outbound": {
+        "carrier": "Air Serbia",
+        "duration_minutes": 685,
+        "segments": [
+          {
+            "marketing_carrier_code": "JU",
+            "flight_number": "393",
+            "operating_carrier_name": "Air Serbia",
+            "departure_airport": "OSL",
+            "departure_time_local": "2026-11-20T20:50:00",
+            "departure_timezone": "Europe/Oslo",
+            "departure_time_utc": "2026-11-20T19:50:00Z",
+            "arrival_airport": "BEG",
+            "arrival_time_local": "2026-11-20T23:40:00",
+            "arrival_timezone": "Europe/Belgrade",
+            "arrival_time_utc": "2026-11-20T22:40:00Z",
+            "duration_minutes": 170,
+            "aircraft": "Airbus"
+          },
+          {
+            "marketing_carrier_code": "JU",
+            "flight_number": "400",
+            "operating_carrier_name": "Air Serbia",
+            "departure_airport": "BEG",
+            "departure_time_local": "2026-11-21T06:40:00",
+            "departure_timezone": "Europe/Belgrade",
+            "departure_time_utc": "2026-11-21T05:40:00Z",
+            "arrival_airport": "FCO",
+            "arrival_time_local": "2026-11-21T08:15:00",
+            "arrival_timezone": "Europe/Rome",
+            "arrival_time_utc": "2026-11-21T07:15:00Z",
+            "duration_minutes": 95,
+            "aircraft": "Airbus"
+          }
+        ]
+      },
+      "cabin_class": "economy",
+      "bags": {
+        "checked": 0
+      },
+      "requires_self_transfer": false,
+      "ignav_id": "ba89f6af8dc840789f5a69e345a60d72"
+    },
+    {
+      "price": {
+        "amount": 113.0,
+        "currency": "USD",
+        "status": "verified"
+      },
+      "outbound": {
+        "carrier": "Wizz Air",
+        "duration_minutes": 615,
+        "segments": [
+          {
+            "marketing_carrier_code": "W6",
+            "flight_number": "2242",
+            "operating_carrier_name": "Wizz Air",
+            "departure_airport": "OSL",
+            "departure_time_local": "2026-11-20T21:40:00",
+            "departure_timezone": "Europe/Oslo",
+            "departure_time_utc": "2026-11-20T20:40:00Z",
+            "arrival_airport": "BUD",
+            "arrival_time_local": "2026-11-21T00:15:00",
+            "arrival_timezone": "Europe/Budapest",
+            "arrival_time_utc": "2026-11-20T23:15:00Z",
+            "duration_minutes": 155,
+            "aircraft": "Airbus A321 Neo"
+          },
+          {
+            "marketing_carrier_code": "W6",
+            "flight_number": "2339",
+            "operating_carrier_name": "Wizz Air",
+            "departure_airport": "BUD",
+            "departure_time_local": "2026-11-21T06:05:00",
+            "departure_timezone": "Europe/Budapest",
+            "departure_time_utc": "2026-11-21T05:05:00Z",
+            "arrival_airport": "FCO",
+            "arrival_time_local": "2026-11-21T07:55:00",
+            "arrival_timezone": "Europe/Rome",
+            "arrival_time_utc": "2026-11-21T06:55:00Z",
+            "duration_minutes": 110,
+            "aircraft": "Airbus A321 Neo"
+          }
+        ]
+      },
+      "cabin_class": "economy",
+      "requires_self_transfer": false,
+      "ignav_id": "ab63a0fbac5943538747b0e58f72af72"
+    },
+    {
+      "price": {
+        "amount": 122.0,
+        "currency": "USD",
+        "status": "verified"
+      },
+      "outbound": {
+        "carrier": "Norwegian Air Shuttle",
+        "duration_minutes": 195,
+        "segments": [
+          {
+            "marketing_carrier_code": "DY",
+            "flight_number": "1872",
+            "operating_carrier_name": "Norwegian Air Shuttle",
+            "departure_airport": "OSL",
+            "departure_time_local": "2026-11-20T07:00:00",
+            "departure_timezone": "Europe/Oslo",
+            "departure_time_utc": "2026-11-20T06:00:00Z",
+            "arrival_airport": "FCO",
+            "arrival_time_local": "2026-11-20T10:15:00",
+            "arrival_timezone": "Europe/Rome",
+            "arrival_time_utc": "2026-11-20T09:15:00Z",
+            "duration_minutes": 195,
+            "aircraft": "Boeing 737"
+          }
+        ]
+      },
+      "cabin_class": "economy",
+      "requires_self_transfer": false,
+      "ignav_id": "1f7447a2f25444b3931c1f37820e9b2f"
+    }
+  ],
+  "observed_at": "2026-10-18T07:10:51.387143Z",
+  "cache_hit": false
+}
