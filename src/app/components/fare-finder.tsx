@@ -1,15 +1,18 @@
 "use client";
 
 import { useEffect, useEffectEvent, useRef, useState } from "react";
+import type { Combination } from "@/lib/ranking";
 import type { SearchResponse } from "@/lib/server/search";
 import { localToday, surpriseWindow } from "../lib/date-presets";
+import { MISSING_ORIGIN } from "../lib/field-errors";
 import { originCodeFromInput } from "../lib/origin-input";
 import { defaultForm, formFromParams, linkHasSearch, paramsFromForm, type SearchForm } from "../lib/search-form";
 import type { CountryOption } from "../lib/types";
-import { ResultsView } from "./results-view";
+import { ResultsLayout } from "./results-layout";
+import { SearchBar } from "./search-bar";
 import { SearchLoading } from "./search-loading";
-import { SearchSentence } from "./search-sentence";
 import { parseStoredOrigin, rememberOrigin, useStoredOriginRaw } from "./stored-origin";
+import { TopBar } from "./top-bar";
 import { labelForCode, useAirportSuggestions } from "./use-airport-suggestions";
 
 type Status =
@@ -57,8 +60,11 @@ export function FareFinder({ countries, initialParams, today }: Props) {
   const [typedOrigin, setTypedOrigin] = useState<string | null>(linked ? (initialParams.origin ?? "") : null);
   const [status, setStatus] = useState<Status>(() => (linked ? { kind: "loading", form } : { kind: "idle" }));
   const [errors, setErrors] = useState<string[]>([]);
+  // Shared by the map and the list: the trip card under the pointer, and the city dot clicked.
+  const [focusedTrip, setFocusedTrip] = useState<Combination | null>(null);
+  const [selectedMetro, setSelectedMetro] = useState<string | null>(null);
   const inFlight = useRef<AbortController | null>(null);
-  const results = useRef<HTMLDivElement>(null);
+  const results = useRef<HTMLElement>(null);
 
   const stored = parseStoredOrigin(useStoredOriginRaw());
   const originText = typedOrigin ?? stored?.label ?? "";
@@ -88,6 +94,13 @@ export function FareFinder({ countries, initialParams, today }: Props) {
     void requestSearch(next, controller.signal).then((outcome) => apply(next, outcome));
   }
 
+  // A new search starts with nothing highlighted: the old trip and city may not be in the new results.
+  function beginLoading(next: SearchForm) {
+    setFocusedTrip(null);
+    setSelectedMetro(null);
+    setStatus({ kind: "loading", form: next });
+  }
+
   // A shared link runs its search on arrival; the loading state was set by the initial render.
   const applyLinked = useEffectEvent((outcome: Outcome) => apply(form, outcome));
   const linkedForm = useRef(form);
@@ -100,13 +113,13 @@ export function FareFinder({ countries, initialParams, today }: Props) {
 
   function start(next: SearchForm) {
     if (!next.origin) {
-      setErrors(["Tell us where you're flying from: a city, or an airport code like OSL."]);
+      setErrors([MISSING_ORIGIN]);
       document.getElementById("origin")?.focus();
       return;
     }
     setErrors([]);
     setForm(next);
-    setStatus({ kind: "loading", form: next });
+    beginLoading(next);
     rememberOrigin({ iata: next.origin, label: originText.includes("·") ? originText : next.origin });
     window.history.pushState(null, "", `?${paramsFromForm(next)}`);
     results.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -128,7 +141,7 @@ export function FareFinder({ countries, initialParams, today }: Props) {
     setForm(next);
     setTypedOrigin(next.origin);
     showLabelFor(next.origin);
-    setStatus({ kind: "loading", form: next });
+    beginLoading(next);
     fetchResults(next);
   });
   useEffect(() => {
@@ -151,64 +164,47 @@ export function FareFinder({ countries, initialParams, today }: Props) {
 
   return (
     <>
-      <header className="on-ink relative overflow-visible bg-ink text-paper">
-        <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="absolute -right-24 -top-24 size-96 rounded-full bg-sunset/25 blur-3xl" />
-          <svg className="absolute bottom-0 left-0 h-40 w-full opacity-30" viewBox="0 0 800 160" preserveAspectRatio="none">
-            <path d="M0 150 Q 400 -40 800 120" fill="none" stroke="#2BD4A4" strokeWidth="2" strokeDasharray="6 10" />
-          </svg>
-        </div>
-        <div className="relative mx-auto max-w-6xl px-4 pb-12 pt-8 sm:px-8 sm:pt-12">
-          <p className="font-mono text-sm tracking-[0.3em] text-mint uppercase">Country Fare Finder</p>
-          <h1 className="mt-4 max-w-3xl font-display text-4xl leading-tight font-extrabold sm:text-6xl">
-            You pick the country.
-            <br />
-            <span className="text-sunset">We find the cities.</span>
-          </h1>
-          <p className="mt-4 max-w-2xl text-lg text-paper/80">
-            We price every airport in the country and rank the cheapest ways in and out, including flying into one city and home from another.
-          </p>
-          <div className="mt-8">
-            <SearchSentence
-              form={form}
-              update={(patch) => setForm((f) => ({ ...f, ...patch }))}
-              originText={originText}
-              onOriginText={setTypedOrigin}
-              originItems={originItems}
-              countries={countries}
-              errors={errors}
-              busy={busy}
-              onSubmit={() => start(current)}
-              onSurprise={surprise}
-            />
-          </div>
-        </div>
-      </header>
+      <TopBar />
+      <div className="mx-auto max-w-[1200px] px-4 pt-4">
+        <SearchBar
+          form={form}
+          update={(patch) => setForm((f) => ({ ...f, ...patch }))}
+          originText={originText}
+          onOriginText={setTypedOrigin}
+          originItems={originItems}
+          countries={countries}
+          errors={errors}
+          busy={busy}
+          onSubmit={() => start(current)}
+          onSurprise={surprise}
+        />
+      </div>
 
-      <main ref={results} className="mx-auto max-w-6xl scroll-mt-4 px-4 pb-16 sm:px-8">
+      <main ref={results} className="mx-auto max-w-[1200px] scroll-mt-[72px] px-4 pt-4 pb-16">
         {status.kind === "loading" && loadingCountry ? <SearchLoading form={status.form} country={loadingCountry} /> : null}
         {status.kind === "failed" ? (
-          <div role="alert" className="mx-auto mt-12 max-w-xl rounded-3xl bg-surface p-8 text-center">
-            <p className="font-display text-2xl font-bold">The fare search hit turbulence.</p>
-            <p className="mt-2 text-muted">The flight data source did not answer in time. It usually works on a second try.</p>
-            <button type="button" onClick={() => start(status.form)} className="mt-6 min-h-12 rounded-2xl bg-sunset px-6 font-bold text-ink">
+          <div role="alert" className="flex flex-wrap items-center gap-3">
+            <p>The flight data source did not answer in time; a second try usually works.</p>
+            <button type="button" onClick={() => start(status.form)} className="h-9 rounded-lg border border-rule bg-card px-3 font-medium hover:border-subtle">
               Try again
             </button>
           </div>
         ) : null}
         {status.kind === "done" ? (
-          <ResultsView
+          <ResultsLayout
             response={status.response}
-            country={country(status.form.country)}
             countries={countries}
+            country={country(status.form.country)}
             originLabel={originText}
+            focusedTrip={focusedTrip}
+            onFocusTrip={setFocusedTrip}
+            selectedMetro={selectedMetro}
+            onSelectMetro={setSelectedMetro}
             onWiden={(patch) => start({ ...status.form, ...patch })}
           />
         ) : null}
         {status.kind === "idle" ? (
-          <p className="mx-auto mt-12 max-w-xl text-center text-muted">
-            Tip: open-jaw trips (into one city, home from another) are often cheaper than a round trip, and you see twice as much.
-          </p>
+          <p className="text-subtle">Pick a country and dates, then search. Open-jaw trips, into one city and home from another, are often cheaper.</p>
         ) : null}
       </main>
     </>

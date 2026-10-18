@@ -3,6 +3,7 @@
 import { useId, useState } from "react";
 import { flagEmoji } from "../lib/flags";
 import { originLabel, type OriginSuggestion } from "../lib/origin-input";
+import { listPanel, optionRow, textControl } from "./control-styles";
 
 interface Props {
   id: string;
@@ -10,15 +11,15 @@ interface Props {
   onText: (text: string) => void;
   /** Suggestions for the current text, fetched by the parent (see useAirportSuggestions). */
   items: OriginSuggestion[];
-  label: string;
-  className?: string;
+  /** Id of the message under the control, when there is one. */
+  describedBy?: string;
 }
 
 /**
  * ARIA 1.2 combobox over the airport suggestions. While GET /api/airports is missing or failing the
  * list just stays empty and a typed three-letter code is accepted as the origin.
  */
-export function OriginCombobox({ id, text, onText, items, label, className = "" }: Props) {
+export function OriginCombobox({ id, text, onText, items, describedBy }: Props) {
   const listId = useId();
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
@@ -54,18 +55,19 @@ export function OriginCombobox({ id, text, onText, items, label, className = "" 
   }
 
   return (
-    <span className="relative inline-block">
+    <div className="relative">
       <input
         id={id}
         role="combobox"
-        aria-label={label}
         aria-expanded={expanded}
         aria-controls={listId}
         aria-autocomplete="list"
         aria-activedescendant={expanded && active >= 0 ? `${listId}-${active}` : undefined}
+        aria-describedby={describedBy}
+        aria-invalid={describedBy ? true : undefined}
         autoComplete="off"
         spellCheck={false}
-        placeholder="City or code"
+        placeholder="City or airport code"
         value={text}
         onChange={(e) => {
           onText(e.target.value);
@@ -75,15 +77,9 @@ export function OriginCombobox({ id, text, onText, items, label, className = "" 
         onFocus={(e) => e.target.select()}
         onBlur={() => setOpen(false)}
         onKeyDown={onKeyDown}
-        className={className}
+        className={textControl}
       />
-      <ul
-        id={listId}
-        role="listbox"
-        aria-label="Matching airports"
-        hidden={!expanded}
-        className="absolute left-0 top-full z-30 mt-2 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-line bg-surface py-2 text-left text-fg shadow-2xl"
-      >
+      <ul id={listId} role="listbox" aria-label="Matching airports" hidden={!expanded} className={listPanel}>
         {items.map((s, i) => (
           <li
             key={s.iata}
@@ -95,17 +91,17 @@ export function OriginCombobox({ id, text, onText, items, label, className = "" 
               e.preventDefault();
               pick(s);
             }}
-            className={`flex min-h-11 cursor-pointer items-center gap-3 px-4 py-2 text-base ${i === active ? "bg-sunset/15" : ""}`}
+            className={optionRow(i === active)}
           >
             <span aria-hidden>{flagEmoji(s.country)}</span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate font-semibold">{s.city}</span>
-              <span className="block truncate text-sm text-muted">{s.name}</span>
+              <span className="block truncate font-medium">{s.city}</span>
+              <span className="block truncate text-xs text-subtle">{s.name}</span>
             </span>
-            <span className="font-mono text-sm font-semibold">{s.iata}</span>
+            <span className="text-xs font-semibold text-subtle">{s.iata}</span>
           </li>
         ))}
       </ul>
-    </span>
+    </div>
   );
 }
