@@ -21,6 +21,32 @@ export interface SearchDeps {
   sleep?: (ms: number) => Promise<void>;
 }
 
+/** One candidate airport of the destination country, for the map and the per-city price list. */
+export interface AirportSummary {
+  iata: string;
+  city: string;
+  metro: string;
+  lat: number;
+  lon: number;
+  /** Cheapest usable outbound fare to this airport over all origins and dates; absent when none was found. */
+  cheapestOut?: number;
+  /** Cheapest usable return fare from this airport; absent when none was found or none was looked up. */
+  cheapestIn?: number;
+}
+
+/** A searched origin. Location is absent when the code is not in any bundled dataset. */
+export interface OriginSummary {
+  iata: string;
+  city?: string;
+  lat?: number;
+  lon?: number;
+}
+
+export interface DayPrice {
+  date: string;
+  price: number;
+}
+
 export interface SearchResponse {
   provider: { name: string; requested: string; fellBack: boolean };
   request: SearchRequest;
@@ -36,6 +62,13 @@ export interface SearchResponse {
   notes: string[];
   combinations: Combination[];
   citiesWithoutReturn: string[];
+  /** Every candidate airport, busiest first, with the cheapest fares found for it. */
+  airports: AirportSummary[];
+  origins: OriginSummary[];
+  /** Cheapest usable outbound fare per departure date across the whole country, ascending by date. */
+  outboundCalendar: DayPrice[];
+  /** How many of the returned combinations had their legs re-priced by an exact search. */
+  verifiedCombinations: number;
 }
 
 interface Lookup {
@@ -176,7 +209,7 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
     }
     for (const offer of offers) {
       if (offer.currency !== req.currency) foreignCurrencies.add(offer.currency);
-      const link = offer.bookingUrl ?? bookingLink(offer.origin, offer.destination, offer.date, req.adults);
+      const link = offer.bookingUrl ?? bookingLink(offer, req, deps.provider.name);
       store.add(direction, { ...offer, bookingUrl: link });
     }
   });
@@ -229,5 +262,10 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
     notes,
     combinations: ranked.combinations,
     citiesWithoutReturn: ranked.citiesWithoutReturn,
+    // Filled in by the search-engine work; empty until then so the response shape is stable.
+    airports: [],
+    origins: origins.map((iata) => ({ iata })),
+    outboundCalendar: [],
+    verifiedCombinations: 0,
   };
 }

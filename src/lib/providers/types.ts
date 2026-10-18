@@ -18,6 +18,11 @@ export interface Offer {
   price: number;
   currency: string;
   carriers: string[];
+  /**
+   * True when the price is a fare-calendar low (cheapest observed quote for the day) rather than a
+   * quoted itinerary. Such offers have no carriers; an exact re-check may replace them.
+   */
+  estimate?: boolean;
   /** Set only when the itinerary needs separate tickets, which carries real risk for the traveller. */
   requiresSelfTransfer?: boolean;
   /** Providers rarely supply a deep link; the search layer fills one in when absent. */
