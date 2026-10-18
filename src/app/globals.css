@@ -81,78 +81,27 @@
 }
 
 html {
-  background: var(--color-canvas);
-}
-
-body {
-  background: var(--color-canvas);
-  color: var(--color-fg);
+  background: var(--color-bg);
 }
 
 :focus-visible {
-  outline: 3px solid var(--color-focus);
+  outline: 2px solid var(--color-accent);
   outline-offset: 2px;
   border-radius: 6px;
 }
 
-/* The hero is always night ink, so it carries its own focus colour. */
-.on-ink {
-  --color-focus: #ffb59c;
-}
-
-/* Native date pickers: keep the control, make the calendar icon visible on ink. */
-.on-ink input[type="date"]::-webkit-calendar-picker-indicator {
-  filter: invert(1);
-  opacity: 0.8;
-  cursor: pointer;
-}
-
-.perforation {
-  background-image: radial-gradient(circle, var(--color-canvas) 4px, transparent 4.5px);
-  background-size: 16px 12px;
-  background-position: center;
-  background-repeat: repeat-x;
-  height: 12px;
-}
-
-.stamp {
-  transform: rotate(-8deg);
-  mask-image: radial-gradient(circle at 30% 40%, #000 60%, rgb(0 0 0 / 0.8) 100%);
-}
-
-@keyframes dot-light {
-  0%,
-  10% {
-    fill: transparent;
-    r: 3;
-  }
-  30% {
-    fill: var(--color-amber);
-    r: 6;
-  }
-  100% {
-    fill: var(--color-mint);
-    r: 4;
-  }
-}
-
-.airport-dot {
-  animation: dot-light 1.2s ease-out both;
-}
-
-@keyframes fade-line {
+/* The search progress bar: a third-width segment sliding across the track. */
+@keyframes progress-slide {
   from {
-    opacity: 0;
-    transform: translateY(4px);
+    transform: translateX(-100%);
   }
   to {
-    opacity: 1;
-    transform: none;
+    transform: translateX(300%);
   }
 }
 
-.fade-line {
-  animation: fade-line 0.4s ease-out;
+.progress-indeterminate {
+  animation: progress-slide 1.4s ease-in-out infinite;
 }
 
 @keyframes draw {
@@ -190,9 +139,6 @@ body {
   *::after {
     animation: none !important;
     transition: none !important;
-  }
-  .airport-dot {
-    fill: var(--color-mint);
   }
   .trip-arrow {
     stroke-dasharray: none;
