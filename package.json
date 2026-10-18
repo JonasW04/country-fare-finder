@@ -18,6 +18,7 @@
     "@types/topojson-client": "^3.1.5",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.4.2",
+    "i18n-iso-countries": "^7.14.0",
     "postcss": "^8.5.30",
     "tailwindcss": "^4.3.3",
     "topojson-client": "^3.1.0",
