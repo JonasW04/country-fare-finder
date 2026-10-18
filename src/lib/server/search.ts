@@ -126,7 +126,9 @@ async function callProvider(deps: SearchDeps, query: OfferQuery,
 
 export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<SearchResponse> {
   const origins = [req.origin, ...(req.secondOrigin ? [req.secondOrigin] : [])];
-  const candidates = candidateAirports(req.country, origins);
+  const cap = deps.config.maxAirportsPerCountry;
+  // A cap keeps the largest airports and collapses metro siblings so the cap buys distinct cities.
+  const candidates = candidateAirports(req.country, origins, cap ?? Infinity, cap !== undefined);
   const budget = new CallBudget(deps.config.maxProviderCalls);
   const store = new OfferStore(candidates);
   const lookups = planLookups(req, candidates.map((a) => a.iata), deps.config.maxDatesPerLeg, Boolean(deps.provider.rangeQueries));
@@ -135,6 +137,10 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
   let cacheMisses = 0;
   let skipped = 0;
   let failed = 0;
+  let haltedSkipped = 0;
+  // Set by a provider error that makes every further request pointless (quota gone, key rejected).
+  let haltReason: string | null = null;
+  const foreignCurrencies = new Set<string>();
   const failureNotes = new Set<string>();
   const emptyResultNotes = new Set<string>();
 
@@ -145,12 +151,19 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
       cacheHits++;
     } else {
       cacheMisses++;
+      if (haltReason) {
+        haltedSkipped++;
+        return;
+      }
       try {
         offers = await callProvider(deps, query, budget, (m) => emptyResultNotes.add(m));
         deps.cache.set(key, offers);
       } catch (err) {
         if (err instanceof AttemptsExhaustedError) skipped++;
-        else {
+        else if (err instanceof ProviderError && err.stopsSearch) {
+          haltReason ??= err.message;
+          haltedSkipped++;
+        } else {
           failed++;
           failureNotes.add(err instanceof Error ? err.message : "Provider call failed");
         }
@@ -158,6 +171,7 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
       }
     }
     for (const offer of offers) {
+      if (offer.currency !== req.currency) foreignCurrencies.add(offer.currency);
       const link = offer.bookingUrl ?? bookingLink(offer.origin, offer.destination, offer.date, req.adults);
       store.add(direction, { ...offer, bookingUrl: link });
     }
@@ -183,6 +197,12 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
       `Provider call budget (${budget.max}) exhausted: ${skipped} of ${lookups.length} price lookups were skipped, so these results are partial.`,
     );
   }
+  if (haltReason) notes.push(`${haltReason} ${haltedSkipped} of ${lookups.length} price lookups were skipped, so these results are partial.`);
+  if (foreignCurrencies.size > 0) {
+    notes.push(
+      `The provider priced some fares in ${[...foreignCurrencies].join(", ")} instead of ${req.currency}; those fares were left out of the ranking.`,
+    );
+  }
   if (failed > 0) {
     notes.push(`${failed} price lookups failed (${[...failureNotes].join("; ")}), so these results are partial.`);
   }
@@ -199,9 +219,9 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
     budget: { max: budget.max, used: budget.calls, exhausted: budget.exhausted },
     candidateAirports: candidates.length,
     lookupsPlanned: lookups.length,
-    lookupsSkipped: skipped,
+    lookupsSkipped: skipped + haltedSkipped,
     lookupsFailed: failed,
-    partial: skipped > 0 || failed > 0,
+    partial: skipped > 0 || haltedSkipped > 0 || failed > 0,
     notes,
     combinations: ranked.combinations,
     citiesWithoutReturn: ranked.citiesWithoutReturn,

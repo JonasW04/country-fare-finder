@@ -34,10 +34,18 @@ const SIZE_ORDER = { large: 0, medium: 1, small: 2 } as const;
  * the destinations people actually fly to. Metro siblings all stay in: ranking dedupes
  * them, and the cheaper sibling may be the one that wins.
  */
-export function candidateAirports(country: string, exclude: string[] = [], limit = Infinity): Airport[] {
+export function candidateAirports(
+  country: string,
+  exclude: string[] = [],
+  limit = Infinity,
+  dedupeMetros = false,
+): Airport[] {
   const skip = new Set(exclude.map((c) => c.toUpperCase()));
   const sorted = airportsForCountry(country)
     .filter((a) => !skip.has(a.iata))
     .sort((a, b) => SIZE_ORDER[a.size] - SIZE_ORDER[b.size] || a.iata.localeCompare(b.iata));
-  return sorted.slice(0, limit);
+  if (!dedupeMetros) return sorted.slice(0, limit);
+  // Sorted largest first, so the first airport seen for a metro is its biggest one.
+  const seen = new Set<string>();
+  return sorted.filter((a) => !seen.has(a.metro) && seen.add(a.metro)).slice(0, limit);
 }

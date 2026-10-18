@@ -123,6 +123,34 @@ describe("runSearch", () => {
     expect(res.notes.join(" ")).toContain("HTTP 400");
   });
 
+  it("stops issuing lookups after an error that stops the search, and says so", async () => {
+    const provider = new StubProvider(() => {
+      throw new ProviderError("Quota used up.", 402, true);
+    });
+    const res = await runSearch(request, deps(provider, { concurrency: 1 }));
+    expect(provider.calls).toHaveLength(1);
+    expect(res.partial).toBe(true);
+    expect(res.lookupsFailed).toBe(0);
+    expect(res.lookupsSkipped).toBe(res.lookupsPlanned);
+    expect(res.notes.join(" ")).toMatch(/Quota used up\./);
+  });
+
+  it("caps airports per country, largest first, one per metro", async () => {
+    const provider = new StubProvider();
+    const res = await runSearch(request, deps(provider, { maxAirportsPerCountry: 3 }));
+    expect(res.candidateAirports).toBe(3);
+    const cities = new Set(provider.calls.flatMap((c) => [c.origin, c.destination]));
+    cities.delete("LHR");
+    expect(cities.size).toBe(3);
+  });
+
+  it("notes fares priced in a currency other than the requested one", async () => {
+    const provider = new StubProvider((q) => [{ origin: q.origin, destination: q.destination, date: q.date, price: 50, currency: "USD", carriers: ["XX"] }]);
+    const res = await runSearch(request, deps(provider));
+    expect(res.combinations).toEqual([]);
+    expect(res.notes.join(" ")).toMatch(/priced some fares in USD instead of EUR/);
+  });
+
   it("covers each airport once before spending calls on extra dates", async () => {
     const provider = new StubProvider();
     await runSearch(request, deps(provider, { maxProviderCalls: 30, maxDatesPerLeg: 3 }));

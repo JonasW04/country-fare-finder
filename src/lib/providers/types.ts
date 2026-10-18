@@ -18,6 +18,8 @@ export interface Offer {
   price: number;
   currency: string;
   carriers: string[];
+  /** Set only when the itinerary needs separate tickets, which carries real risk for the traveller. */
+  requiresSelfTransfer?: boolean;
   /** Providers rarely supply a deep link; the search layer fills one in when absent. */
   bookingUrl?: string;
 }
@@ -50,6 +52,8 @@ export class ProviderError extends Error {
   constructor(
     message: string,
     readonly status?: number,
+    /** True when no further request in this search can succeed (quota used up, key rejected). */
+    readonly stopsSearch = false,
   ) {
     super(message);
     this.name = "ProviderError";

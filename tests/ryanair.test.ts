@@ -349,7 +349,7 @@ describe("provider selection", () => {
     expect(sel.provider.name).toBe("ryanair");
     expect(sel.fellBack).toBe(false);
     expect(sel.credentialsPresent).toBe(false);
-    expect(sel.defaultConcurrency).toBe(2);
+    expect(sel.defaults).toEqual({ concurrency: 2 });
   });
 
   it("keeps mock as the default", () => {

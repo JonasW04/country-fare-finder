@@ -1,6 +1,7 @@
 import { MockProvider } from "../providers/mock";
 import { RyanairProvider } from "../providers/ryanair";
 import type { FlightProvider } from "../providers/types";
+import type { ProviderDefaults } from "./config";
 
 export interface ProviderSelection {
   provider: FlightProvider;
@@ -8,8 +9,8 @@ export interface ProviderSelection {
   /** True when a keyed provider was requested but its credentials were missing, so mock data is served. */
   fellBack: boolean;
   credentialsPresent: boolean;
-  /** Used for the search pool when SEARCH_CONCURRENCY is not set. */
-  defaultConcurrency?: number;
+  /** Used when the matching env variables are not set. */
+  defaults?: ProviderDefaults;
 }
 
 type Env = Record<string, string | undefined>;
@@ -24,7 +25,7 @@ export function readProviderSelection(env: Env = process.env): ProviderSelection
       requested,
       fellBack: false,
       credentialsPresent: false,
-      defaultConcurrency: RyanairProvider.defaultConcurrency,
+      defaults: { concurrency: RyanairProvider.defaultConcurrency },
     };
   }
   return { provider: new MockProvider(), requested, fellBack: false, credentialsPresent: false };

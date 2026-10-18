@@ -11,7 +11,7 @@ let cache: TtlCache<Offer[]> | null = null;
 
 export function searchWithDefaults(request: SearchRequest): Promise<SearchResponse> {
   const selection = getProviderSelection();
-  const config = loadSearchConfig(process.env, selection.defaultConcurrency);
+  const config = loadSearchConfig(process.env, selection.defaults);
   cache ??= new TtlCache<Offer[]>(config.cacheTtlMs);
   return runSearch(request, {
     provider: selection.provider,
