@@ -85,13 +85,3 @@ export function paramsFromForm(form: SearchForm): URLSearchParams {
   return params;
 }
 
-/**
- * The IATA code in what the traveller typed: a bare code ("osl") or a picked suggestion's label
- * ("Oslo · OSL"). Empty when neither, so free text never reaches the API as an origin.
- */
-export function originCodeFromText(text: string): string {
-  const trimmed = text.trim();
-  const labelled = /·\s*([A-Za-z]{3})$/.exec(trimmed);
-  if (labelled?.[1]) return labelled[1].toUpperCase();
-  return /^[A-Za-z]{3}$/.test(trimmed) ? trimmed.toUpperCase() : "";
-}

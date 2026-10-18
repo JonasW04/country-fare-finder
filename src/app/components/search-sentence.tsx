@@ -2,6 +2,7 @@
 
 import { DATE_PRESETS, localToday } from "../lib/date-presets";
 import { CABINS, CURRENCIES, type SearchForm } from "../lib/search-form";
+import type { OriginSuggestion } from "../lib/origin-input";
 import type { CountryOption } from "../lib/types";
 import { CountryPicker } from "./country-picker";
 import { OriginCombobox } from "./origin-combobox";
@@ -11,6 +12,7 @@ interface Props {
   update: (patch: Partial<SearchForm>) => void;
   originText: string;
   onOriginText: (text: string) => void;
+  originItems: OriginSuggestion[];
   countries: CountryOption[];
   errors: string[];
   busy: boolean;
@@ -69,7 +71,7 @@ export function SearchSentence(props: Props) {
     >
       <div className="font-display text-2xl leading-[2.4] font-medium text-paper sm:text-3xl sm:leading-[2.2]">
         <label htmlFor="origin">Fly from</label>{" "}
-        <OriginCombobox id="origin" label="Flying from (city or airport code)" text={props.originText} onText={props.onOriginText} className={`${pill} w-48 font-mono sm:w-56`} />{" "}
+        <OriginCombobox id="origin" label="Flying from (city or airport code)" text={props.originText} onText={props.onOriginText} items={props.originItems} className={`${pill} w-48 font-mono sm:w-56`} />{" "}
         to{" "}
         <CountryPicker countries={countries} value={form.country} onChange={(country) => update({ country })} triggerClassName={`${pill} inline-flex items-center gap-2`} />{" "}
         <span className="whitespace-nowrap">

@@ -5,7 +5,8 @@ import { formatDay, formatMoney, formatSpan } from "@/app/lib/format";
 import { bearingDeg, edgePoint, pinToFrame, splitOutliers } from "@/app/lib/map-geometry";
 import { priceColor, priceRatio } from "@/app/lib/price-scale";
 import { openJawSaving, visibleTrips } from "@/app/lib/results";
-import { defaultForm, formFromParams, originCodeFromText, paramsFromForm } from "@/app/lib/search-form";
+import { originCodeFromInput, originLabel } from "@/app/lib/origin-input";
+import { defaultForm, formFromParams, paramsFromForm } from "@/app/lib/search-form";
 import type { Combination } from "@/lib/ranking";
 
 function combo(rank: number, inMetro: string, outMetro: string, total: number, nights = 5): Combination {
@@ -140,10 +141,32 @@ describe("search form", () => {
     expect(formFromParams(params, defaultForm("2026-10-18", "ES"))).toEqual(form);
   });
 
-  it("reads an origin code from typed text or a picked label", () => {
-    expect(originCodeFromText(" stn ")).toBe("STN");
-    expect(originCodeFromText("Oslo · OSL")).toBe("OSL");
-    expect(originCodeFromText("Oslo")).toBe("");
+});
+
+describe("origin input", () => {
+  const oslo = { iata: "OSL", name: "Oslo-Gardermoen International Airport", city: "Oslo", country: "NO" };
+  const torp = { iata: "TRF", name: "Sandefjord Airport, Torp", city: "Oslo", country: "NO" };
+  const stansted = { iata: "STN", name: "London Stansted Airport", city: "London", country: "GB" };
+
+  it("sends the code of a picked label, never the label", () => {
+    expect(originCodeFromInput("Oslo · OSL", [])).toBe("OSL");
+    expect(originCodeFromInput(originLabel(stansted), [])).toBe("STN");
+  });
+
+  it("resolves typed text to the matching or first suggestion", () => {
+    expect(originCodeFromInput("oslo", [oslo, torp])).toBe("OSL");
+    expect(originCodeFromInput("osl", [torp, oslo])).toBe("OSL");
+    expect(originCodeFromInput("sandefjord", [torp])).toBe("TRF");
+  });
+
+  it("accepts a bare code before suggestions load and rejects other free text", () => {
+    expect(originCodeFromInput(" stn ", [])).toBe("STN");
+    expect(originCodeFromInput("Oslo", [])).toBe("");
+  });
+
+  it("labels an airport by its name when the name starts with the city", () => {
+    expect(originLabel(stansted)).toBe("London Stansted · STN");
+    expect(originLabel(oslo)).toBe("Oslo · OSL");
   });
 });
 
