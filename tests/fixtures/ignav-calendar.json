@@ -1,0 +1,13 @@
+{
+  "_note": "Constructed from ignav.com openapi.json (CalendarResponse), not recorded from the live API.",
+  "origin": "OSL",
+  "destination": "FCO",
+  "status": "partial",
+  "cache_hit": false,
+  "days": [
+    { "departure_date": "2026-11-20", "return_date": null, "status": "priced", "price": { "amount": 97, "currency": "EUR", "status": "unverified" }, "observed_at": "2026-10-18T09:00:00Z" },
+    { "departure_date": "2026-11-21", "return_date": null, "status": "no_price", "price": null, "observed_at": "2026-10-18T09:00:00Z" },
+    { "departure_date": "2026-11-22", "return_date": null, "status": "priced", "price": { "amount": 84.5, "currency": "EUR", "status": "unverified" }, "observed_at": "2026-10-18T09:00:00Z" },
+    { "departure_date": "2026-11-23", "return_date": null, "status": "unavailable", "price": null, "observed_at": null }
+  ]
+}

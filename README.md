@@ -49,11 +49,11 @@ Set `FLIGHT_PROVIDER=ryanair` to price real Ryanair fares from its public fare-f
 
 Set `FLIGHT_PROVIDER=ignav` and provide `IGNAV_API_KEY` in the environment. Ignav covers all carriers, so it works for markets Ryanair barely serves (such as Norway). `/api/health` reports `credentialsPresent` as a boolean only. Without a key the app falls back to mock and labels the response.
 
-Ignav has one request per origin, destination and date, and a free tier of 1000 requests a month, so the defaults keep a search small: the 6 largest airports of the country (one per metro, `MAX_AIRPORTS_PER_COUNTRY`) and 2 outbound dates (`MAX_DATES_PER_LEG`). That is 6 airports x 2 dates x 2 directions = **24 requests per search** (48 with a second origin), even for a country with 41 airports. Raising either setting raises the cost proportionally.
+Ignav has one request per origin, destination and date, and a one-time allowance of 1,000 free requests (then $2.00 per 1,000 successful requests), so the defaults keep a search small: the 6 largest airports of the country (one per metro, `MAX_AIRPORTS_PER_COUNTRY`) and 2 outbound dates (`MAX_DATES_PER_LEG`). That is 6 airports x 2 dates x 2 directions = **24 requests per search** (48 with a second origin), even for a country with 41 airports. Raising either setting raises the cost proportionally.
 
 Rome, Milan and Paris are queried by their official metro codes (ROM, MIL, PAR), so one request covers FCO+CIA or MXP+LIN+BGY. The offer carries the real airport the fare lands at, and a metro still costs one slot.
 
-The request currency selects Ignav's market (EUR to DE, NOK to NO, SEK to SE, DKK to DK, GBP to GB, USD to US, CHF to CH, PLN to PL, anything else to US). Fares priced in a different currency than requested are left out of the ranking and the response says so. The cheapest itinerary per route and date is used. HTTP 402 (free quota used up), 401 and 403 stop the rest of that search and return the partial result with a note; 429 and 5xx are retried with backoff.
+The request currency selects Ignav's market (EUR to DE, NOK to NO, SEK to SE, DKK to DK, GBP to GB, USD to US, CHF to CH, PLN to PL, anything else to US). Fares priced in a different currency than requested are left out of the ranking and the response says so. The cheapest itinerary per route and date is used. HTTP 402 (free allowance used up or billing blocked), 429 `monthly_spend_limit_reached`, 401 and 403 stop the rest of that search and return the partial result with a note; other 429s, 5xx and 424 `unable_to_complete_request` are retried with backoff.
 
 ## How a search works
 
