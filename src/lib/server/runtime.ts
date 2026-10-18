@@ -10,9 +10,9 @@ import type { SearchResponse } from "./search";
 let cache: TtlCache<Offer[]> | null = null;
 
 export function searchWithDefaults(request: SearchRequest): Promise<SearchResponse> {
-  const config = loadSearchConfig();
-  cache ??= new TtlCache<Offer[]>(config.cacheTtlMs);
   const selection = getProviderSelection();
+  const config = loadSearchConfig(process.env, selection.defaultConcurrency);
+  cache ??= new TtlCache<Offer[]>(config.cacheTtlMs);
   return runSearch(request, {
     provider: selection.provider,
     requested: selection.requested,
