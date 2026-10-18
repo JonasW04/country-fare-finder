@@ -2,7 +2,7 @@
 
 /*
  * Redesign tokens: quiet, map-first. One accent, used for the primary action, the selected country
- * and the cheapest price only. New code uses these names; the older palette below is being removed.
+ * and the cheapest price only.
  */
 @theme {
   --color-bg: #f5f3ee;
@@ -31,51 +31,6 @@
     --color-land: #2c333d;
     --color-land-empty: #20262e;
     --color-warning: #e0b25a;
-  }
-}
-
-/* Travel poster meets departure board. Brand colours are fixed; the semantic ones flip in dark mode. */
-@theme {
-  --color-ink: #0b1b2b;
-  --color-ink-2: #14304a;
-  --color-sunset: #ff6b3d;
-  --color-sunset-soft: #ffb59c;
-  --color-mint: #2bd4a4;
-  --color-paper: #fbf7f0;
-  --color-amber: #ffc94d;
-
-  /* Text-safe variants: brand mint and sunset are too light for body text on paper. */
-  --color-sunset-ink: #b23a10;
-  --color-mint-ink: #08715a;
-
-  --color-canvas: #f1eadf;
-  --color-surface: #fbf7f0;
-  --color-fg: #0b1b2b;
-  --color-muted: #55606d;
-  --color-line: #ddd3c4;
-  --color-focus: #b23a10;
-  --color-info: #e6eef7;
-  --color-warn: #fde7c8;
-}
-
-@theme inline {
-  --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-canvas: #07131f;
-    --color-surface: #10263b;
-    --color-fg: #f5efe4;
-    --color-muted: #a9b6c4;
-    --color-line: #24405b;
-    --color-focus: #ffb59c;
-    --color-info: #142f48;
-    --color-warn: #3b2a12;
-    --color-sunset-ink: #ff8a62;
-    --color-mint-ink: #5fe3bd;
     color-scheme: dark;
   }
 }
