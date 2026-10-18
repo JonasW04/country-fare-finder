@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { candidateAirports, findAnyAirport } from "@/lib/airports";
 import { enumerateDates } from "@/lib/dates";
+import { ProviderError } from "@/lib/providers/types";
 import type { FlightProvider, Offer, OfferQuery, RangeSupport } from "@/lib/providers/types";
 import type { SearchRequest } from "@/lib/search-request";
 import { TtlCache } from "@/lib/server/cache";
@@ -183,6 +184,18 @@ describe("phase 3 exact re-check", () => {
     const unknown = await runSearch({ ...request, origin: "ZZZ" }, deps(new Stub(answer, PER_DAY), verify));
     expect(unknown.origins).toEqual([{ iata: "ZZZ" }]);
     expect(res.outboundCalendar).toEqual([{ date: "2027-03-01", price: 20 }]);
+  });
+
+  it("says so when the provider stops the search during the re-check, without going partial", async () => {
+    const stopping = (q: OfferQuery): Offer[] => {
+      if (!q.dateTo) throw new ProviderError("Quota used up.", 402, true);
+      return answer(q);
+    };
+    const res = await runSearch(request, deps(new Stub(stopping, PER_DAY), verify));
+
+    expect(res.partial).toBe(false);
+    expect(res.notes).toContain("Quota used up. Some prices could not be re-checked.");
+    expect(res.notes).toContain(ESTIMATE_NOTE);
   });
 
   it("keeps estimates without going partial when the budget runs out during the re-check", async () => {

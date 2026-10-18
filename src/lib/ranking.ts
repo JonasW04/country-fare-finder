@@ -214,10 +214,6 @@ export function exactReplacements(offers: Offer[], currency: string): Map<string
 }
 
 /**
- * Swaps each estimate leg for its exact quote when one exists, even a dearer one: the calendar low
- * was never bookable, so ranking must follow the quote.
- */
-/**
  * Median ratio of exact fare to calendar low over the legs re-checked so far, kept inside [1, 2]:
  * a calendar low is a floor, and one odd quote should not double every other estimate.
  */
@@ -235,6 +231,19 @@ export function scaleEstimates(offers: Offer[], factor: number): Offer[] {
   return offers.map((o) => (o.estimate ? { ...o, price: Math.round(o.price * factor * 100) / 100 } : o));
 }
 
+/** Exact-to-raw-low ratio for each checked leg that got an exact quote; `rawLows` maps legKey to the calendar low. */
+export function markupRatios(legs: Offer[], replacements: Map<string, Offer>, rawLows: Map<string, number>): number[] {
+  return legs.flatMap((leg) => {
+    const exact = replacements.get(legKey(leg));
+    const raw = rawLows.get(legKey(leg)) ?? leg.price;
+    return exact && raw > 0 ? [exact.price / raw] : [];
+  });
+}
+
+/**
+ * Swaps each estimate leg for its exact quote when one exists, even a dearer one: the calendar low
+ * was never bookable, so ranking must follow the quote.
+ */
 export function replaceEstimates(offers: Offer[], replacements: Map<string, Offer>): Offer[] {
   return offers.map((o) => (o.estimate ? (replacements.get(legKey(o)) ?? o) : o));
 }

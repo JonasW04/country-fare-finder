@@ -8,6 +8,7 @@ import {
   hasEstimateLeg,
   estimateMarkup,
   legKey,
+  markupRatios,
   rankCombinations,
   replaceEstimates,
   scaleEstimates,
@@ -23,7 +24,7 @@ import { eligibleCities, planInbound, planOutbound } from "./plan";
 import type { Lookup, PlanContext } from "./plan";
 import { airportSummaries, originSummaries, outboundCalendar } from "./summaries";
 
-export const ESTIMATE_NOTE = "Prices marked ≈ are estimates from the fare calendar; confirm them on the booking page.";
+export const ESTIMATE_NOTE = "Prices marked ≈ are fare-calendar lows scaled by how far exact fares sat above them in this search; confirm them on the booking page.";
 
 export interface SearchDeps {
   provider: FlightProvider;
@@ -169,6 +170,8 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
     const markups: number[] = [];
     const baseOut = outOffers;
     const baseIn = inOffers;
+    // After the first round the ranked legs carry scaled prices; the gap is measured against the raw low.
+    const rawLows = new Map([...baseOut, ...baseIn].filter((o) => o.estimate).map((o) => [legKey(o), o.price]));
     while (verifyLookups < maxLookups && !budget.exhausted) {
       const legs = estimateLegsToVerify(rank(Infinity).combinations, deps.config.verifyTop, attempted).slice(0, maxLookups - verifyLookups);
       if (legs.length === 0) break;
@@ -176,10 +179,7 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
       const verified = await verifyEstimates(req, deps, runner, legs, withLink);
       verifyLookups += verified.lookups;
       for (const [key, offer] of verified.replacements) replacements.set(key, offer);
-      for (const leg of legs) {
-        const exact = verified.replacements.get(legKey(leg));
-        if (exact && leg.price > 0) markups.push(exact.price / leg.price);
-      }
+      markups.push(...markupRatios(legs, verified.replacements, rawLows));
       // Unchecked lows are scaled by how far exact fares sat above them in this search, so checked
       // and unchecked combinations compete on the same footing instead of lows always floating up.
       const factor = estimateMarkup(markups);
@@ -200,6 +200,9 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
   }
   if (haltReason) {
     notes.push(`${haltReason} ${tally.haltedSkipped} of ${coverageLookups} price lookups were skipped, so these results are partial.`);
+  } else if (runner.haltReason) {
+    // Stopped during the re-check: every fare was found, only some stay estimates, but the next search will hit the same wall.
+    notes.push(`${runner.haltReason} Some prices could not be re-checked.`);
   }
   if (foreignCurrencies.size > 0) {
     notes.push(

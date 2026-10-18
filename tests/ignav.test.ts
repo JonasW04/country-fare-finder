@@ -284,7 +284,7 @@ describe("Ignav through the search engine", () => {
 
   it("defaults to the 12 busiest metros, one calendar per direction, and exact prices for the top 5", async () => {
     expect(airportsForCountry("IT")).toHaveLength(41);
-    expect(selection.defaults).toEqual({ maxAirportsPerCountry: 12, verifyTop: 5 });
+    expect(selection.defaults).toEqual({ maxAirportsPerCountry: 12, verifyTop: 5, maxProviderCalls: 100 });
     const { impl, calls } = routedFetch();
     const res = await run(impl);
 

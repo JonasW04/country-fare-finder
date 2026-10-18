@@ -34,8 +34,9 @@ export function readProviderSelection(env: Env = process.env): ProviderSelection
       fellBack: false,
       credentialsPresent: true,
       // One fare-calendar request covers an airport's whole window, so 12 airports cost about 24
-      // calendar requests plus exact re-checks of the top 5 combinations (usually 10, at most 20).
-      defaults: { maxAirportsPerCountry: 12, verifyTop: 5 },
+      // calendar requests plus exact re-checks of the top 5 combinations (usually 10, at most 20). 100 calls
+      // cover the worst case: 2 origins x 12 airports x (1 outbound + 2 return chunks) + 20 = 92.
+      defaults: { maxAirportsPerCountry: 12, verifyTop: 5, maxProviderCalls: 100 },
     };
   }
 

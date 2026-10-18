@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OfferStore, estimateLegsToVerify, estimateMarkup, exactReplacements, rankCombinations, replaceEstimates, scaleEstimates } from "@/lib/ranking";
+import { OfferStore, estimateLegsToVerify, estimateMarkup, legKey, markupRatios, exactReplacements, rankCombinations, replaceEstimates, scaleEstimates } from "@/lib/ranking";
 import { sampleDates } from "@/lib/dates";
 import { airport, offer } from "./helpers";
 
@@ -182,5 +182,21 @@ describe("estimate markup", () => {
     const [estimate, exact] = scaleEstimates([{ ...leg, estimate: true }, leg], 1.15);
     expect(estimate?.price).toBe(115);
     expect(exact?.price).toBe(100);
+  });
+});
+
+describe("markup ratios", () => {
+  it("measures a re-checked leg against its raw calendar low, not the scaled price it was ranked at", () => {
+    const raw = { origin: "LHR", destination: "FCO", date: "2027-03-01", price: 100, currency: "EUR", carriers: [], estimate: true };
+    // Second round: the leg reached the top at 150 after a 1.5x scale; its exact quote is 150.
+    const ranked = { ...raw, price: 150 };
+    const exact = { ...raw, price: 150, carriers: ["XX"], estimate: undefined };
+    const replacements = new Map([[legKey(raw), exact]]);
+    expect(markupRatios([ranked], replacements, new Map([[legKey(raw), 100]]))).toEqual([1.5]);
+  });
+
+  it("skips legs with no exact quote", () => {
+    const leg = { origin: "LHR", destination: "FCO", date: "2027-03-01", price: 100, currency: "EUR", carriers: [], estimate: true };
+    expect(markupRatios([leg], new Map(), new Map())).toEqual([]);
   });
 });
