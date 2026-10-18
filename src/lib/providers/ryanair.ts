@@ -61,6 +61,8 @@ export function parseFares(body: unknown): FareLeg[] {
 
 export class RyanairProvider implements FlightProvider {
   readonly name = "ryanair";
+  readonly meteredRequests = true;
+  readonly rangeQueries = true;
   /** Ryanair throttles aggressively, so this provider runs gentler than the global default. */
   static readonly defaultConcurrency = 2;
 
@@ -78,11 +80,11 @@ export class RyanairProvider implements FlightProvider {
     // A destination in the bundled dataset is priced country-wide (shareable across its airports);
     // anything else, such as a return to an origin outside the dataset, is asked for by airport.
     const country = findAirport(query.destination)?.country;
-    const key = [query.origin, country ?? query.destination, query.date, query.currency].join("|");
+    const key = [query.origin, country ?? query.destination, query.date, query.dateTo ?? "", query.currency].join("|");
 
     let pending = this.shared.get(key);
     if (!pending) {
-      const request = this.fetchFares(query, country, options.signal);
+      const request = this.fetchFares(query, country, options);
       pending = request;
       this.shared.set(key, request);
       // A failed call must not be replayed from cache, or retries would just re-read the failure.
@@ -97,20 +99,22 @@ export class RyanairProvider implements FlightProvider {
       .map((f) => ({ ...f, carriers: ["FR"] }));
   }
 
-  private async fetchFares(query: OfferQuery, country: string | undefined, signal?: AbortSignal): Promise<FareLeg[]> {
+  private async fetchFares(query: OfferQuery, country: string | undefined, options: SearchOptions): Promise<FareLeg[]> {
     const params = new URLSearchParams({
       departureAirportIataCode: query.origin,
       outboundDepartureDateFrom: query.date,
-      outboundDepartureDateTo: query.date,
+      outboundDepartureDateTo: query.dateTo ?? query.date,
       currency: query.currency,
       limit: "100",
     });
     if (country) params.set("arrivalCountryCode", country);
     else params.set("arrivalAirportIataCode", query.destination);
 
+    // Counted here, not per lookup: shared and cached lookups never reach this line.
+    options.onRequest?.();
     const res = await this.fetchImpl(`${RYANAIR_FARES_URL}?${params}`, {
       headers: { "User-Agent": BROWSER_USER_AGENT, Accept: "application/json" },
-      signal,
+      signal: options.signal,
     });
     if (res.status === 429) throw new ProviderError("Ryanair rate limit (HTTP 429)", 429);
     if (res.status === 403) throw new ProviderError("Ryanair refused the request (HTTP 403)", 403);

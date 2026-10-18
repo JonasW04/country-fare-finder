@@ -48,30 +48,43 @@ interface Lookup {
  * sample for every airport, so a budget that runs out mid-search leaves every airport with
  * the same coverage instead of a few airports with many dates.
  */
-function planLookups(req: SearchRequest, airports: string[], maxDatesPerLeg: number): Lookup[] {
+function planLookups(req: SearchRequest, airports: string[], maxDatesPerLeg: number, rangeReturns: boolean): Lookup[] {
   const outDates = sampleDates(enumerateDates(req.earliest, req.latest), maxDatesPerLeg);
   const nights: number[] = [];
   for (let n = req.minNights; n <= req.maxNights; n++) nights.push(n);
   const nightSamples = sampleDates(nights.map(String), maxDatesPerLeg).map(Number);
 
   const origins = [req.origin, ...(req.secondOrigin ? [req.secondOrigin] : [])];
+  const base = { cabin: req.cabin, adults: req.adults, currency: req.currency };
   const lookups: Lookup[] = [];
   outDates.forEach((outDate, tier) => {
     const backDate = addDays(outDate, nightSamples[tier % nightSamples.length] ?? req.minNights);
     for (const origin of origins) {
       for (const city of airports) {
-        const base = { cabin: req.cabin, adults: req.adults, currency: req.currency };
         lookups.push({ direction: "out", query: { ...base, origin, destination: city, date: outDate } });
-        lookups.push({ direction: "in", query: { ...base, origin: city, destination: origin, date: backDate } });
+        if (!rangeReturns) {
+          lookups.push({ direction: "in", query: { ...base, origin: city, destination: origin, date: backDate } });
+        }
       }
     }
   });
+  if (rangeReturns) {
+    // The endpoint returns the cheapest fare inside a window, so one request per airport covers every
+    // possible return date. MAX_DATES_PER_LEG only thins the outbound dates.
+    const date = addDays(req.earliest, req.minNights);
+    const dateTo = addDays(req.latest, req.maxNights);
+    for (const origin of origins) {
+      for (const city of airports) {
+        lookups.push({ direction: "in", query: { ...base, origin: city, destination: origin, date, dateTo } });
+      }
+    }
+  }
   return lookups;
 }
 
 function cacheKey(provider: string, q: OfferQuery): string {
   // Adults and currency change the price, so they belong in the key alongside the spec's fields.
-  return [provider, q.origin, q.destination, q.date, q.cabin, q.adults, q.currency].join("|");
+  return [provider, q.origin, q.destination, q.date, q.dateTo ?? "", q.cabin, q.adults, q.currency].join("|");
 }
 
 async function callProvider(deps: SearchDeps, query: OfferQuery, budget: CallBudget): Promise<Offer[]> {
@@ -81,7 +94,15 @@ async function callProvider(deps: SearchDeps, query: OfferQuery, budget: CallBud
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), config.callTimeoutMs);
       try {
-        return await provider.searchOffers(query, { signal: controller.signal });
+        return await provider.searchOffers(query, {
+          signal: controller.signal,
+          // Metered providers spend the budget themselves, once per real HTTP request.
+          onRequest: provider.meteredRequests
+            ? () => {
+                if (!budget.tryConsume()) throw new AttemptsExhaustedError();
+              }
+            : undefined,
+        });
       } catch (err) {
         // A timeout is transient, so give it the same treatment as a 5xx.
         if (controller.signal.aborted) throw new ProviderError("Provider call timed out", 504);
@@ -94,7 +115,7 @@ async function callProvider(deps: SearchDeps, query: OfferQuery, budget: CallBud
       retries: config.retries,
       baseDelayMs: config.backoffMs,
       sleep: deps.sleep,
-      beforeAttempt: () => budget.tryConsume(),
+      beforeAttempt: provider.meteredRequests ? undefined : () => budget.tryConsume(),
     },
   );
 }
@@ -104,7 +125,7 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
   const candidates = candidateAirports(req.country, origins);
   const budget = new CallBudget(deps.config.maxProviderCalls);
   const store = new OfferStore(candidates);
-  const lookups = planLookups(req, candidates.map((a) => a.iata), deps.config.maxDatesPerLeg);
+  const lookups = planLookups(req, candidates.map((a) => a.iata), deps.config.maxDatesPerLeg, Boolean(deps.provider.rangeQueries));
 
   let cacheHits = 0;
   let cacheMisses = 0;

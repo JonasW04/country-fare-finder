@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import fixture from "./fixtures/ryanair-one-way-fares.json";
+import { candidateAirports } from "@/lib/airports";
 import { RYANAIR_FARES_URL, RyanairProvider } from "@/lib/providers/ryanair";
 import { ProviderError } from "@/lib/providers/types";
 import type { OfferQuery } from "@/lib/providers/types";
@@ -170,6 +171,134 @@ describe("Ryanair through the search engine", () => {
     expect(res.notes.join(" ")).toMatch(/403/);
     expect(res.combinations).toEqual([]);
     expect(calls.length).toBeLessThanOrEqual(res.lookupsPlanned);
+  });
+});
+
+describe("Ryanair request-based budget and return windows", () => {
+  const request: SearchRequest = {
+    origin: "OSL",
+    country: "IT",
+    earliest: "2027-03-01",
+    latest: "2027-03-05",
+    minNights: 5,
+    maxNights: 7,
+    cabin: "ECONOMY",
+    adults: 1,
+    currency: "EUR",
+    limit: 5,
+  };
+  const config: SearchConfig = {
+    concurrency: 2,
+    callTimeoutMs: 1000,
+    retries: 2,
+    backoffMs: 0,
+    maxProviderCalls: 60,
+    cacheTtlMs: 60_000,
+    maxDatesPerLeg: 3,
+  };
+  const airportCount = candidateAirports("IT", ["OSL"]).length;
+
+  const leg = (from: string, to: string, date: string, value: number) => ({
+    outbound: {
+      departureAirport: { iataCode: from },
+      arrivalAirport: { iataCode: to },
+      departureDate: `${date}T10:00:00`,
+      price: { value, currencyCode: "EUR" },
+    },
+  });
+
+  /** Country calls answer with FCO on the requested day; per-airport return calls with a fare inside the window. */
+  function fareFetch() {
+    const calls: URL[] = [];
+    const impl: typeof fetch = async (input) => {
+      const url = new URL(String(input));
+      calls.push(url);
+      const from = url.searchParams.get("departureAirportIataCode") ?? "";
+      const day = url.searchParams.get("outboundDepartureDateFrom") ?? "";
+      const fares = url.searchParams.has("arrivalCountryCode")
+        ? [leg(from, "FCO", day, 20)]
+        : from === "FCO"
+          ? [leg("FCO", "OSL", "2027-03-08", 30)]
+          : [];
+      return new Response(JSON.stringify({ fares }), { status: 200 });
+    };
+    return { impl, calls };
+  }
+
+  const run = (maxProviderCalls: number, impl: typeof fetch) =>
+    runSearch(request, {
+      provider: new RyanairProvider({ fetchImpl: impl }),
+      requested: "ryanair",
+      fellBack: false,
+      cache: new TtlCache(config.cacheTtlMs),
+      config: { ...config, maxProviderCalls },
+      sleep: async () => {},
+    });
+
+  it("covers a full country search with one request per outbound date plus one per airport", async () => {
+    const { impl, calls } = fareFetch();
+    const res = await run(60, impl);
+
+    expect(airportCount).toBeGreaterThan(3);
+    expect(calls).toHaveLength(3 + airportCount);
+    expect(res.providerCalls).toBe(calls.length);
+    expect(res.budget).toEqual({ max: 60, used: calls.length, exhausted: false });
+    expect(res.lookupsPlanned).toBe(3 * airportCount + airportCount);
+    expect(res.lookupsPlanned).toBeGreaterThan(res.providerCalls);
+    expect(res.lookupsSkipped).toBe(0);
+    expect(res.partial).toBe(false);
+    expect(res.combinations.length).toBeGreaterThan(0);
+  });
+
+  it("asks for each return airport once, over the whole return window", async () => {
+    const { impl, calls } = fareFetch();
+    await run(60, impl);
+
+    const returns = calls.filter((u) => !u.searchParams.has("arrivalCountryCode"));
+    expect(returns).toHaveLength(airportCount);
+    for (const url of returns) {
+      expect(url.searchParams.get("arrivalAirportIataCode")).toBe("OSL");
+      // earliest + minNights through latest + maxNights; MAX_DATES_PER_LEG does not thin this.
+      expect(url.searchParams.get("outboundDepartureDateFrom")).toBe("2027-03-06");
+      expect(url.searchParams.get("outboundDepartureDateTo")).toBe("2027-03-12");
+    }
+    const outbound = calls.filter((u) => u.searchParams.has("arrivalCountryCode"));
+    expect(outbound.map((u) => u.searchParams.get("outboundDepartureDateFrom")).sort()).toEqual([
+      "2027-03-01",
+      "2027-03-03",
+      "2027-03-05",
+    ]);
+  });
+
+  it("stops at the request budget and reports the rest as skipped", async () => {
+    const { impl, calls } = fareFetch();
+    const res = await run(5, impl);
+
+    expect(calls).toHaveLength(5);
+    expect(res.providerCalls).toBe(5);
+    expect(res.budget).toEqual({ max: 5, used: 5, exhausted: true });
+    expect(res.lookupsSkipped).toBeGreaterThan(0);
+    expect(res.partial).toBe(true);
+    expect(res.notes.join(" ")).toMatch(/budget \(5\) exhausted/);
+  });
+
+  it("counts a retry as another request", async () => {
+    let n = 0;
+    const impl: typeof fetch = async () => {
+      n++;
+      return new Response(n === 1 ? "{}" : JSON.stringify({ fares: [] }), { status: n === 1 ? 429 : 200 });
+    };
+    const provider = new RyanairProvider({ fetchImpl: impl });
+    const res = await runSearch({ ...request, latest: "2027-03-01" }, {
+      provider,
+      requested: "ryanair",
+      fellBack: false,
+      cache: new TtlCache(config.cacheTtlMs),
+      config: { ...config, maxDatesPerLeg: 1 },
+      sleep: async () => {},
+    });
+    expect(res.providerCalls).toBe(n);
+    expect(res.lookupsFailed).toBe(0);
   });
 });
 
