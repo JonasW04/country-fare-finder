@@ -1,5 +1,39 @@
 @import "tailwindcss";
 
+/*
+ * Redesign tokens: quiet, map-first. One accent, used for the primary action, the selected country
+ * and the cheapest price only. New code uses these names; the older palette below is being removed.
+ */
+@theme {
+  --color-bg: #f5f3ee;
+  --color-card: #ffffff;
+  --color-text: #1b2430;
+  --color-subtle: #5b6573;
+  --color-rule: #e2ded6;
+  --color-accent: #d9502a;
+  --color-accent-text: #b8401e;
+  --color-home: #2f6f6a;
+  --color-land: #e6e0d4;
+  --color-land-empty: #efebe4;
+  --color-warning: #8a5a00;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #12161c;
+    --color-card: #1a2028;
+    --color-text: #e8e6e1;
+    --color-subtle: #9aa3ae;
+    --color-rule: #2a313b;
+    --color-accent-text: #f08a66;
+    --color-home: #7cc4bc;
+    --color-land: #2c333d;
+    --color-land-empty: #20262e;
+    --color-warning: #e0b25a;
+  }
+}
+
 /* Travel poster meets departure board. Brand colours are fixed; the semantic ones flip in dark mode. */
 @theme {
   --color-ink: #0b1b2b;
