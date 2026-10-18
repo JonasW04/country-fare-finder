@@ -1,1 +1,169 @@
 @import "tailwindcss";
+
+/* Travel poster meets departure board. Brand colours are fixed; the semantic ones flip in dark mode. */
+@theme {
+  --color-ink: #0b1b2b;
+  --color-ink-2: #14304a;
+  --color-sunset: #ff6b3d;
+  --color-sunset-soft: #ffb59c;
+  --color-mint: #2bd4a4;
+  --color-paper: #fbf7f0;
+  --color-amber: #ffc94d;
+
+  /* Text-safe variants: brand mint and sunset are too light for body text on paper. */
+  --color-sunset-ink: #b23a10;
+  --color-mint-ink: #08715a;
+
+  --color-canvas: #f1eadf;
+  --color-surface: #fbf7f0;
+  --color-fg: #0b1b2b;
+  --color-muted: #55606d;
+  --color-line: #ddd3c4;
+  --color-focus: #b23a10;
+  --color-info: #e6eef7;
+  --color-warn: #fde7c8;
+}
+
+@theme inline {
+  --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-canvas: #07131f;
+    --color-surface: #10263b;
+    --color-fg: #f5efe4;
+    --color-muted: #a9b6c4;
+    --color-line: #24405b;
+    --color-focus: #ffb59c;
+    --color-info: #142f48;
+    --color-warn: #3b2a12;
+    --color-sunset-ink: #ff8a62;
+    --color-mint-ink: #5fe3bd;
+    color-scheme: dark;
+  }
+}
+
+html {
+  background: var(--color-canvas);
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-fg);
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* The hero is always night ink, so it carries its own focus colour. */
+.on-ink {
+  --color-focus: #ffb59c;
+}
+
+/* Native date pickers: keep the control, make the calendar icon visible on ink. */
+.on-ink input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.8;
+  cursor: pointer;
+}
+
+.perforation {
+  background-image: radial-gradient(circle, var(--color-canvas) 4px, transparent 4.5px);
+  background-size: 16px 12px;
+  background-position: center;
+  background-repeat: repeat-x;
+  height: 12px;
+}
+
+.stamp {
+  transform: rotate(-8deg);
+  mask-image: radial-gradient(circle at 30% 40%, #000 60%, rgb(0 0 0 / 0.8) 100%);
+}
+
+@keyframes dot-light {
+  0%,
+  10% {
+    fill: transparent;
+    r: 3;
+  }
+  30% {
+    fill: var(--color-amber);
+    r: 6;
+  }
+  100% {
+    fill: var(--color-mint);
+    r: 4;
+  }
+}
+
+.airport-dot {
+  animation: dot-light 1.2s ease-out both;
+}
+
+@keyframes fade-line {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.fade-line {
+  animation: fade-line 0.4s ease-out;
+}
+
+@keyframes draw {
+  from {
+    stroke-dashoffset: 400;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.trip-arrow {
+  stroke-dasharray: 400;
+  animation: draw 0.6s ease-out both;
+}
+
+@keyframes confetti {
+  0% {
+    transform: translate(0, 0) rotate(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--dx), var(--dy)) rotate(var(--spin));
+    opacity: 0;
+  }
+}
+
+.confetti-bit {
+  animation: confetti 1.4s cubic-bezier(0.2, 0.7, 0.4, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  .airport-dot {
+    fill: var(--color-mint);
+  }
+  .trip-arrow {
+    stroke-dasharray: none;
+  }
+  .confetti-bit {
+    display: none;
+  }
+}
