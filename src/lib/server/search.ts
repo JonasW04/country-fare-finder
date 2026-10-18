@@ -1,16 +1,26 @@
-import { airportsForCountry, candidateAirports } from "../airports";
+import { candidateAirports } from "../airports";
 import { bookingLink } from "../booking-link";
-import { addDays, enumerateDates, sampleDates } from "../dates";
-import { ProviderError } from "../providers/types";
-import type { FlightProvider, Offer, OfferQuery } from "../providers/types";
-import { OfferStore, rankCombinations } from "../ranking";
+import type { FlightProvider, Offer } from "../providers/types";
+import {
+  OfferStore,
+  estimateLegsToVerify,
+  exactReplacements,
+  hasEstimateLeg,
+  rankCombinations,
+  replaceEstimates,
+} from "../ranking";
 import type { Combination } from "../ranking";
 import type { SearchRequest } from "../search-request";
 import { CallBudget } from "./budget";
 import type { TtlCache } from "./cache";
 import type { SearchConfig } from "./config";
-import { runBounded } from "./pool";
-import { AttemptsExhaustedError, withRetry } from "./retry";
+import { LookupRunner } from "./lookups";
+import type { PhaseTally } from "./lookups";
+import { eligibleCities, planInbound, planOutbound } from "./plan";
+import type { Lookup, PlanContext } from "./plan";
+import { airportSummaries, originSummaries, outboundCalendar } from "./summaries";
+
+export const ESTIMATE_NOTE = "Prices marked ≈ are fare-calendar lows; confirm them on the booking page.";
 
 export interface SearchDeps {
   provider: FlightProvider;
@@ -67,94 +77,40 @@ export interface SearchResponse {
   origins: OriginSummary[];
   /** Cheapest usable outbound fare per departure date across the whole country, ascending by date. */
   outboundCalendar: DayPrice[];
-  /** How many of the returned combinations had their legs re-priced by an exact search. */
+  /** How many of the returned combinations have only exactly quoted legs (no fare-calendar estimate). */
   verifiedCombinations: number;
 }
 
-interface Lookup {
-  direction: "out" | "in";
-  query: OfferQuery;
+function combineTallies(a: PhaseTally, b: PhaseTally): PhaseTally {
+  return {
+    skipped: a.skipped + b.skipped,
+    haltedSkipped: a.haltedSkipped + b.haltedSkipped,
+    failed: a.failed + b.failed,
+    failureNotes: new Set([...a.failureNotes, ...b.failureNotes]),
+  };
 }
 
 /**
- * Lookups are ordered by tier, then origin, then airport. Tier t prices one (date, nights)
- * sample for every airport, so a budget that runs out mid-search leaves every airport with
- * the same coverage instead of a few airports with many dates.
+ * Phase 3: per-day calendars give estimates, so the top combinations get their estimate legs
+ * re-priced by exact one-way searches. A lookup lost here only leaves an estimate in place, so it
+ * never makes the response partial.
  */
-function planLookups(req: SearchRequest, airports: string[], maxDatesPerLeg: number, rangeReturns: boolean): Lookup[] {
-  const outDates = sampleDates(enumerateDates(req.earliest, req.latest), maxDatesPerLeg);
-  const nights: number[] = [];
-  for (let n = req.minNights; n <= req.maxNights; n++) nights.push(n);
-  const nightSamples = sampleDates(nights.map(String), maxDatesPerLeg).map(Number);
-
-  const origins = [req.origin, ...(req.secondOrigin ? [req.secondOrigin] : [])];
+async function verifyEstimates(
+  req: SearchRequest,
+  deps: SearchDeps,
+  runner: LookupRunner,
+  ranked: Combination[],
+  withLink: (o: Offer) => Offer,
+): Promise<{ lookups: number; replacements: Map<string, Offer> }> {
+  const legs = estimateLegsToVerify(ranked, deps.config.verifyTop);
   const base = { cabin: req.cabin, adults: req.adults, currency: req.currency };
-  const lookups: Lookup[] = [];
-  outDates.forEach((outDate, tier) => {
-    const backDate = addDays(outDate, nightSamples[tier % nightSamples.length] ?? req.minNights);
-    for (const origin of origins) {
-      for (const city of airports) {
-        lookups.push({ direction: "out", query: { ...base, origin, destination: city, date: outDate } });
-        if (!rangeReturns) {
-          lookups.push({ direction: "in", query: { ...base, origin: city, destination: origin, date: backDate } });
-        }
-      }
-    }
-  });
-  if (rangeReturns) {
-    // The endpoint returns the cheapest fare inside a window, so one request per airport covers every
-    // possible return date. MAX_DATES_PER_LEG only thins the outbound dates.
-    const date = addDays(req.earliest, req.minNights);
-    const dateTo = addDays(req.latest, req.maxNights);
-    for (const origin of origins) {
-      for (const city of airports) {
-        lookups.push({ direction: "in", query: { ...base, origin: city, destination: origin, date, dateTo } });
-      }
-    }
-  }
-  return lookups;
-}
-
-function cacheKey(provider: string, q: OfferQuery): string {
-  // Adults and currency change the price, so they belong in the key alongside the spec's fields.
-  return [provider, q.origin, q.destination, q.date, q.dateTo ?? "", q.cabin, q.adults, q.currency].join("|");
-}
-
-async function callProvider(deps: SearchDeps, query: OfferQuery,
-  budget: CallBudget,
-  onNote: (message: string) => void,
-): Promise<Offer[]> {
-  const { config, provider } = deps;
-  return withRetry(
-    async () => {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), config.callTimeoutMs);
-      try {
-        return await provider.searchOffers(query, {
-          signal: controller.signal,
-          onNote,
-          // Metered providers spend the budget themselves, once per real HTTP request.
-          onRequest: provider.meteredRequests
-            ? () => {
-                if (!budget.tryConsume()) throw new AttemptsExhaustedError();
-              }
-            : undefined,
-        });
-      } catch (err) {
-        // A timeout is transient, so give it the same treatment as a 5xx.
-        if (controller.signal.aborted) throw new ProviderError("Provider call timed out", 504);
-        throw err;
-      } finally {
-        clearTimeout(timer);
-      }
-    },
-    {
-      retries: config.retries,
-      baseDelayMs: config.backoffMs,
-      sleep: deps.sleep,
-      beforeAttempt: provider.meteredRequests ? undefined : () => budget.tryConsume(),
-    },
-  );
+  const lookups: Lookup[] = legs.map((leg) => ({
+    direction: "out",
+    query: { ...base, origin: leg.origin, destination: leg.destination, date: leg.date },
+  }));
+  const exact: Offer[] = [];
+  await runner.run(lookups, (lookup, offers) => exact.push(...offers.map(withLink)));
+  return { lookups: lookups.length, replacements: exactReplacements(exact, req.currency) };
 }
 
 export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<SearchResponse> {
@@ -165,107 +121,94 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
   const budget = new CallBudget(deps.config.maxProviderCalls);
   // A metro query can return any airport of that metro, so offers must resolve for all of them.
   const metros = new Set(candidates.map((a) => a.metro));
-  const known = airportsForCountry(req.country).filter((a) => metros.has(a.metro) && !origins.includes(a.iata));
+  const known = candidateAirports(req.country, origins).filter((a) => metros.has(a.metro));
   const store = new OfferStore(known);
-  const queryCodes = candidates.map((a) => deps.provider.cityQueryCode?.(a.iata) ?? a.iata);
-  const lookups = planLookups(req, queryCodes,deps.config.maxDatesPerLeg, Boolean(deps.provider.range));
+  const runner = new LookupRunner(deps, budget);
+  const plan: PlanContext = { req, origins, candidates, provider: deps.provider, maxDatesPerLeg: deps.config.maxDatesPerLeg };
 
-  let cacheHits = 0;
-  let cacheMisses = 0;
-  let skipped = 0;
-  let failed = 0;
-  let haltedSkipped = 0;
-  // Set by a provider error that makes every further request pointless (quota gone, key rejected).
-  let haltReason: string | null = null;
   const foreignCurrencies = new Set<string>();
-  const failureNotes = new Set<string>();
-  const emptyResultNotes = new Set<string>();
-
-  const tasks = lookups.map(({ direction, query }) => async () => {
-    const key = cacheKey(deps.provider.name, query);
-    let offers = deps.cache.get(key);
-    if (offers) {
-      cacheHits++;
-    } else {
-      cacheMisses++;
-      if (haltReason) {
-        haltedSkipped++;
-        return;
-      }
-      try {
-        offers = await callProvider(deps, query, budget, (m) => emptyResultNotes.add(m));
-        deps.cache.set(key, offers);
-      } catch (err) {
-        if (err instanceof AttemptsExhaustedError) skipped++;
-        else if (err instanceof ProviderError && err.stopsSearch) {
-          haltReason ??= err.message;
-          haltedSkipped++;
-        } else {
-          failed++;
-          failureNotes.add(err instanceof Error ? err.message : "Provider call failed");
-        }
-        return;
-      }
-    }
+  const withLink = (offer: Offer): Offer => ({ ...offer, bookingUrl: offer.bookingUrl ?? bookingLink(offer, req, deps.provider.name) });
+  const collect = ({ direction }: Lookup, offers: Offer[]) => {
     for (const offer of offers) {
       if (offer.currency !== req.currency) foreignCurrencies.add(offer.currency);
-      const link = offer.bookingUrl ?? bookingLink(offer, req, deps.provider.name);
-      store.add(direction, { ...offer, bookingUrl: link });
+      store.add(direction, withLink(offer));
     }
-  });
-  await runBounded(tasks, deps.config.concurrency);
+  };
 
-  const ranked = rankCombinations({
-    outbound: store.offers("out"),
-    inbound: store.offers("in"),
-    airports: known,
-    currency: req.currency,
-    minNights: req.minNights,
-    maxNights: req.maxNights,
-    limit: req.limit,
-  });
+  const outbound = planOutbound(plan);
+  const outTally = await runner.run(outbound, collect);
+  // Returns are only worth asking for cities that can be reached at all.
+  const cities = eligibleCities(store.offers("out"), known, candidates, origins, req.currency);
+  const inbound = planInbound(plan, cities);
+  const tally = combineTallies(outTally, await runner.run(inbound, collect));
+  const coverageLookups = outbound.length + inbound.length;
+  const haltReason = runner.haltReason;
+
+  let outOffers = store.offers("out");
+  let inOffers = store.offers("in");
+  const rank = (limit: number) =>
+    rankCombinations({
+      outbound: outOffers,
+      inbound: inOffers,
+      airports: known,
+      currency: req.currency,
+      minNights: req.minNights,
+      maxNights: req.maxNights,
+      limit,
+    });
+
+  let verifyLookups = 0;
+  if (deps.config.verifyTop > 0 && deps.provider.range?.perDay) {
+    const verified = await verifyEstimates(req, deps, runner, rank(Infinity).combinations, withLink);
+    verifyLookups = verified.lookups;
+    outOffers = replaceEstimates(outOffers, verified.replacements);
+    inOffers = replaceEstimates(inOffers, verified.replacements);
+  }
+  const ranked = rank(req.limit);
 
   const notes: string[] = [];
   if (deps.fellBack) {
     notes.push(`FLIGHT_PROVIDER=${deps.requested} was requested but credentials are missing, so mock data was used.`);
   }
-  if (skipped > 0) {
+  if (tally.skipped > 0) {
     notes.push(
-      `Provider call budget (${budget.max}) exhausted: ${skipped} of ${lookups.length} price lookups were skipped, so these results are partial.`,
+      `Provider call budget (${budget.max}) exhausted: ${tally.skipped} of ${coverageLookups} price lookups were skipped, so these results are partial.`,
     );
   }
-  if (haltReason) notes.push(`${haltReason} ${haltedSkipped} of ${lookups.length} price lookups were skipped, so these results are partial.`);
+  if (haltReason) {
+    notes.push(`${haltReason} ${tally.haltedSkipped} of ${coverageLookups} price lookups were skipped, so these results are partial.`);
+  }
   if (foreignCurrencies.size > 0) {
     notes.push(
       `The provider priced some fares in ${[...foreignCurrencies].join(", ")} instead of ${req.currency}; those fares were left out of the ranking.`,
     );
   }
-  if (failed > 0) {
-    notes.push(`${failed} price lookups failed (${[...failureNotes].join("; ")}), so these results are partial.`);
+  if (tally.failed > 0) {
+    notes.push(`${tally.failed} price lookups failed (${[...tally.failureNotes].join("; ")}), so these results are partial.`);
   }
   // An empty sampled date is normal when other dates priced; it is only worth a note if nothing did.
-  if (store.offers("out").length === 0) notes.push(...emptyResultNotes);
+  if (outOffers.length === 0) notes.push(...runner.emptyResultNotes);
   if (ranked.combinations.length === 0) notes.push("No fare combinations matched the dates and trip length.");
+  if (ranked.combinations.some(hasEstimateLeg)) notes.push(ESTIMATE_NOTE);
 
   return {
     provider: { name: deps.provider.name, requested: deps.requested, fellBack: deps.fellBack },
     request: req,
     providerCalls: budget.calls,
-    cacheHits,
-    cacheMisses,
+    cacheHits: runner.cacheHits,
+    cacheMisses: runner.cacheMisses,
     budget: { max: budget.max, used: budget.calls, exhausted: budget.exhausted },
     candidateAirports: candidates.length,
-    lookupsPlanned: lookups.length,
-    lookupsSkipped: skipped + haltedSkipped,
-    lookupsFailed: failed,
-    partial: skipped > 0 || haltedSkipped > 0 || failed > 0,
+    lookupsPlanned: coverageLookups + verifyLookups,
+    lookupsSkipped: tally.skipped + tally.haltedSkipped,
+    lookupsFailed: tally.failed,
+    partial: tally.skipped > 0 || tally.haltedSkipped > 0 || tally.failed > 0,
     notes,
     combinations: ranked.combinations,
     citiesWithoutReturn: ranked.citiesWithoutReturn,
-    // Filled in by the search-engine work; empty until then so the response shape is stable.
-    airports: [],
-    origins: origins.map((iata) => ({ iata })),
-    outboundCalendar: [],
-    verifiedCombinations: 0,
+    airports: airportSummaries(known, outOffers, inOffers, req.currency),
+    origins: originSummaries(origins),
+    outboundCalendar: outboundCalendar(outOffers, req.currency),
+    verifiedCombinations: ranked.combinations.filter((c) => !hasEstimateLeg(c)).length,
   };
 }

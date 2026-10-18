@@ -208,7 +208,8 @@ describe("metro queries", () => {
         requested: "ignav",
         fellBack: false,
         cache: new TtlCache(60_000),
-        config: { ...loadSearchConfig({}, selection.defaults), backoffMs: 0 },
+        // Six metros keep every combination inside the limit, so the assertion is about mapping only.
+        config: { ...loadSearchConfig({}, selection.defaults), backoffMs: 0, maxAirportsPerCountry: 6 },
         sleep: async () => {},
       },
     );
@@ -260,21 +261,19 @@ describe("Ignav through the search engine", () => {
   const priced = () =>
     stubFetch((): Response => new Response(JSON.stringify(fixture), { status: 200 }));
 
-  it("costs at most 30 requests for a 41-airport country under default config", async () => {
+  it("defaults to the 12 busiest metros and exact re-checks of the top 5 combinations", async () => {
     expect(airportsForCountry("IT")).toHaveLength(41);
+    expect(selection.defaults).toEqual({ maxAirportsPerCountry: 12, verifyTop: 5 });
     const { impl, calls } = priced();
     const res = await run(impl);
 
-    expect(res.candidateAirports).toBe(6);
-    // Top six by traffic: Rome and Milan each take one slot and are queried by metro code.
+    expect(res.candidateAirports).toBe(12);
+    // Top six by traffic lead: Rome and Milan each take one slot and are queried by metro code.
     expect(candidateAirports("IT", [], 6, true).map((a) => a.iata)).toEqual(["FCO", "MXP", "NAP", "VCE", "CTA", "BLQ"]);
     const outbound = calls.filter((c) => c.body.origin === "OSL").map((c) => c.body.destination);
-    expect([...new Set(outbound)]).toEqual(["ROM", "MIL", "NAP", "VCE", "CTA", "BLQ"]);
-    expect(defaults.maxDatesPerLeg).toBe(2);
-    expect(calls.length).toBe(24);
-    expect(calls.length).toBeLessThanOrEqual(30);
+    expect([...new Set(outbound)].slice(0, 6)).toEqual(["ROM", "MIL", "NAP", "VCE", "CTA", "BLQ"]);
     expect(res.providerCalls).toBe(calls.length);
-    expect(res.partial).toBe(false);
+    expect(res.providerCalls).toBeLessThanOrEqual(res.budget.max);
   });
 
   it("lets env override the date and airport defaults", () => {

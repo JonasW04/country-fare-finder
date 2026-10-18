@@ -3,7 +3,9 @@ import { nightsBetween } from "./dates";
 import type { Airport } from "./airports";
 import type { Offer } from "./providers/types";
 
-export const DEFAULT_PER_CITY_CAP = 20;
+// A 31-day fare calendar yields one offer per day per airport; a lower cap would drop days
+// before trip lengths are paired.
+export const DEFAULT_PER_CITY_CAP = 64;
 
 export type Direction = "out" | "in";
 
@@ -174,4 +176,44 @@ export function rankCombinations(input: RankInput): RankResult {
     .map((g) => g.airport.metroName);
 
   return { combinations, citiesWithoutReturn: [...new Set(missing)].sort() };
+}
+
+type LegRef = Pick<Offer, "origin" | "destination" | "date">;
+
+export function legKey(leg: LegRef): string {
+  return `${leg.origin}|${leg.destination}|${leg.date}`;
+}
+
+export function hasEstimateLeg(c: Combination): boolean {
+  return Boolean(c.outbound.estimate || c.inbound.estimate);
+}
+
+/** Unique estimate legs of the first `top` combinations that still carry one, in rank order. */
+export function estimateLegsToVerify(combinations: Combination[], top: number): Offer[] {
+  const legs = new Map<string, Offer>();
+  for (const c of combinations.filter(hasEstimateLeg).slice(0, Math.max(0, top))) {
+    for (const leg of [c.outbound, c.inbound]) {
+      if (leg.estimate && !legs.has(legKey(leg))) legs.set(legKey(leg), leg);
+    }
+  }
+  return [...legs.values()];
+}
+
+/** Cheapest usable exact (non-estimate) offer per leg, to stand in for that leg's calendar low. */
+export function exactReplacements(offers: Offer[], currency: string): Map<string, Offer> {
+  const best = new Map<string, Offer>();
+  for (const o of offers) {
+    if (o.estimate || o.currency !== currency || !Number.isFinite(o.price)) continue;
+    const current = best.get(legKey(o));
+    if (!current || compareOffers(o, current) < 0) best.set(legKey(o), o);
+  }
+  return best;
+}
+
+/**
+ * Swaps each estimate leg for its exact quote when one exists, even a dearer one: the calendar low
+ * was never bookable, so ranking must follow the quote.
+ */
+export function replaceEstimates(offers: Offer[], replacements: Map<string, Offer>): Offer[] {
+  return offers.map((o) => (o.estimate ? (replacements.get(legKey(o)) ?? o) : o));
 }
