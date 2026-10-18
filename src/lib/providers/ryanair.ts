@@ -62,7 +62,7 @@ export function parseFares(body: unknown): FareLeg[] {
 export class RyanairProvider implements FlightProvider {
   readonly name = "ryanair";
   readonly meteredRequests = true;
-  readonly rangeQueries = true;
+  readonly range = { maxDays: 366, perDay: false };
   /** Ryanair throttles aggressively, so this provider runs gentler than the global default. */
   static readonly defaultConcurrency = 2;
 

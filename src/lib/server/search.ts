@@ -168,7 +168,7 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
   const known = airportsForCountry(req.country).filter((a) => metros.has(a.metro) && !origins.includes(a.iata));
   const store = new OfferStore(known);
   const queryCodes = candidates.map((a) => deps.provider.cityQueryCode?.(a.iata) ?? a.iata);
-  const lookups = planLookups(req, queryCodes,deps.config.maxDatesPerLeg, Boolean(deps.provider.rangeQueries));
+  const lookups = planLookups(req, queryCodes,deps.config.maxDatesPerLeg, Boolean(deps.provider.range));
 
   let cacheHits = 0;
   let cacheMisses = 0;
