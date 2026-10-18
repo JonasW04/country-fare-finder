@@ -30,18 +30,28 @@ The UI lives at `/`. The JSON API is `GET /api/search?origin=LHR&country=IT&earl
 | Name | Default | Purpose |
 | --- | --- | --- |
 | `FLIGHT_PROVIDER` | `mock` | `mock`, `ryanair` or `ignav`. `ryanair` needs no key. If `ignav` is chosen without `IGNAV_API_KEY` the app falls back to mock and labels the response. |
-| `MAX_PROVIDER_CALLS` | `60` | Provider calls allowed per search, retries included. When it runs out the response is marked partial. |
+| `IGNAV_API_KEY` | none | Ignav API key, sent as `X-Api-Key`. Server side only; set it in the environment, never in code or a committed file. |
+| `MAX_PROVIDER_CALLS` | `60` | Provider requests allowed per search, retries included. When it runs out the response is marked partial. |
 | `CACHE_TTL_SECONDS` | `1200` | Lifetime of cached route/date fares. |
 | `SEARCH_CONCURRENCY` | `4` (`2` for `ryanair`) | Parallel provider calls. |
 | `PROVIDER_TIMEOUT_MS` | `10000` | Per-call timeout. |
 | `PROVIDER_RETRIES` | `2` | Retries on 429/5xx/timeout, with exponential backoff. |
 | `PROVIDER_BACKOFF_MS` | `400` | Base backoff delay. |
-| `MAX_DATES_PER_LEG` | `3` | Outbound dates sampled per search. |
+| `MAX_DATES_PER_LEG` | `3` (`2` for `ignav`) | Outbound dates sampled per search. |
+| `MAX_AIRPORTS_PER_COUNTRY` | unlimited (`6` for `ignav`) | Prices only the largest airports of the country, one per metro. |
 | `PORT` | `3000` | Set by Railway; `npm start` honours it. |
 
 ## Live fares with Ryanair (no key)
 
 Set `FLIGHT_PROVIDER=ryanair` to price real Ryanair fares from its public fare-finder endpoint (`services-api.ryanair.com/farfnd/v4/oneWayFares`). It needs no credentials and `/api/health` reports `credentialsPresent: false`. With this provider `MAX_PROVIDER_CALLS` counts real HTTP requests: one country-wide request per sampled outbound date (shared by every airport) plus one request per airport covering the whole return window, so a full 41-airport search costs about 44 requests. `providerCalls` reports those requests, while `lookupsPlanned` and `lookupsSkipped` still count logical lookups. Only Ryanair routes are covered, and the endpoint is undocumented, so it can change or throttle without notice. HTTP 429, HTTP 403, empty results and an unexpected response shape are reported as partial results with a note; no fare is ever invented. `mock` remains the default.
+
+## Live fares with Ignav (all carriers, API key)
+
+Set `FLIGHT_PROVIDER=ignav` and provide `IGNAV_API_KEY` in the environment. Ignav covers all carriers, so it works for markets Ryanair barely serves (such as Norway). `/api/health` reports `credentialsPresent` as a boolean only. Without a key the app falls back to mock and labels the response.
+
+Ignav has one request per origin, destination and date, and a free tier of 1000 requests a month, so the defaults keep a search small: the 6 largest airports of the country (one per metro, `MAX_AIRPORTS_PER_COUNTRY`) and 2 outbound dates (`MAX_DATES_PER_LEG`). That is 6 airports x 2 dates x 2 directions = **24 requests per search** (48 with a second origin), even for a country with 41 airports. Raising either setting raises the cost proportionally.
+
+The request currency selects Ignav's market (EUR to DE, NOK to NO, SEK to SE, DKK to DK, GBP to GB, USD to US, CHF to CH, PLN to PL, anything else to US). Fares priced in a different currency than requested are left out of the ranking and the response says so. The cheapest itinerary per route and date is used. HTTP 402 (free quota used up), 401 and 403 stop the rest of that search and return the partial result with a note; 429 and 5xx are retried with backoff.
 
 ## How a search works
 
