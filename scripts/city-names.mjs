@@ -5,6 +5,7 @@
 // to the worldwide origin list. Add an entry whenever a displayed name looks wrong.
 export const CITY_NAMES = {
   // Italy
+  BGY: "Bergamo", LIN: "Milan Linate", MXP: "Milan Malpensa", VCE: "Venice",
   AOI: "Ancona", CRV: "Crotone", CUF: "Cuneo", EBA: "Elba", FLR: "Florence", GOA: "Genoa",
   NAP: "Naples", TRN: "Turin", TRS: "Trieste", VBS: "Brescia", VRN: "Verona", QSR: "Salerno",
   PMF: "Parma", CIY: "Comiso",

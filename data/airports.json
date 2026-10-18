@@ -2647,7 +2647,7 @@
   {
    "iata": "BGY",
    "name": "Il Caravaggio International Airport",
-   "city": "Orio al Serio",
+   "city": "Bergamo",
    "country": "IT",
    "size": "large",
    "rank": 3,
@@ -2829,7 +2829,7 @@
   {
    "iata": "LIN",
    "name": "Milano Linate Airport",
-   "city": "Segrate",
+   "city": "Milan Linate",
    "country": "IT",
    "size": "large",
    "rank": 9,
@@ -2852,7 +2852,7 @@
   {
    "iata": "MXP",
    "name": "Milan Malpensa International Airport",
-   "city": "Ferno",
+   "city": "Milan Malpensa",
    "country": "IT",
    "size": "large",
    "rank": 2,
@@ -3056,7 +3056,7 @@
   {
    "iata": "VCE",
    "name": "Venice Marco Polo Airport",
-   "city": "Venezia",
+   "city": "Venice",
    "country": "IT",
    "size": "large",
    "rank": 5,
