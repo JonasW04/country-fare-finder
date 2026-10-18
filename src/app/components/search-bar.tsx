@@ -71,7 +71,7 @@ export function SearchBar(props: Props) {
       }}
     >
       {/* Stacked on phones, two rows on tablets, one row from 1280px. */}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto_auto_auto] xl:gap-2">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_auto_auto_auto_auto] xl:gap-2">
         <Field label="From" htmlFor="origin" field="origin" messages={byField.origin}>
           <OriginCombobox id="origin" text={props.originText} onText={props.onOriginText} items={props.originItems} describedBy={describe("origin")} />
         </Field>
