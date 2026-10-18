@@ -67,29 +67,9 @@ The response always states the provider and the number of provider calls used. I
 ## Regenerating airport data
 
 ```bash
-node scripts/build-airports.mjs                                  # ES, IT, PT, FR, GR, TH
+node scripts/build-airports.mjs                                  # ES IT PT FR GR TH DE GB NL HR NO SE TR US JP
 node scripts/build-airports.mjs --countries=ES,DE,NL             # another list
 AIRPORT_COUNTRIES=ES,IT node scripts/build-airports.mjs          # same, via env
 ```
 
-The script downloads the public OurAirports `airports.csv` and `countries.csv`, keeps airports with scheduled service and an IATA code, and rewrites `data/airports.json`. It needs network; the app and tests do not. Metro groupings (for example Milan, Paris, Rome, Bangkok, Venice) are a hand-kept table at the top of the script; add entries there when you add countries.
-
-## Docker
-
-```bash
-docker build -t country-fare-finder .
-docker run --rm -p 3000:3000 -e PORT=3000 country-fare-finder
-```
-
-## Deploy to Railway
-
-1. Push this code to a GitHub repository (done by the maintainer, not by the app).
-2. In Railway choose **New Project → Deploy from GitHub repo** and select the repository. Railway reads `railway.json` and builds with the `Dockerfile`.
-3. In the service **Variables** tab set:
-   - `FLIGHT_PROVIDER` = `mock`, `ryanair` or `ignav`
-   - `IGNAV_API_KEY` (only for `ignav`)
-   - optionally `MAX_PROVIDER_CALLS`, `CACHE_TTL_SECONDS`
-
-   Do not set `PORT`; Railway provides it.
-4. Under **Settings → Deploy**, confirm the healthcheck path is `/api/health` (already in `railway.json`).
-5. Generate a public domain under **Settings → Networking** and open it. `/api/health` should return `"status":"ok"` and the active provider.
+The script downloads the public OurAirports `airports.csv` and `countries.csv`, keeps airports with scheduled service and an IATA code, and rewrites `data/airports.json` for the default countries (ES, IT, PT, FR, GR, TH, DE, GB, NL, HR, NO, SE, TR, US, JP). OurAirports' municipality is often a suburb or carries a region suffix, so `scripts/city-names.mjs` holds a hand-kept `CITY_NAMES` table (IATA to the name a traveller books to) that overrides `city`, and `metroName` for airports outside a metro group; add an entry when a name looks wrong. Metro groupings (Milan, Paris, London, New York, Tokyo and so on) and the per-country traffic order are hand-kept tables at the top of the script; extend both when you add countries. `node scripts/build-origins.mjs` writes `data/origins.json`, a compact worldwide list of large and medium airports with scheduled service, which backs the origin lookup `GET /api/airports?q=<text>` (up to 8 matches by IATA code, city or airport name; fewer than 2 characters returns `[]`). Both scripts need network; the app and tests do not.
