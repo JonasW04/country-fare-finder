@@ -29,7 +29,10 @@ export interface SearchOptions {
    * search's call budget is spent, so the budget counts requests rather than logical lookups.
    */
   onRequest?: () => void;
-  /** Lets a provider report a limitation or oddity that should reach the search response notes. */
+  /**
+   * A provider's explanation for an empty result. The search layer only surfaces these when the
+   * whole search found no outbound fares, since one empty sampled date is normal.
+   */
   onNote?: (message: string) => void;
 }
 

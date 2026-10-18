@@ -136,7 +136,7 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
   let skipped = 0;
   let failed = 0;
   const failureNotes = new Set<string>();
-  const providerNotes = new Set<string>();
+  const emptyResultNotes = new Set<string>();
 
   const tasks = lookups.map(({ direction, query }) => async () => {
     const key = cacheKey(deps.provider.name, query);
@@ -146,7 +146,7 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
     } else {
       cacheMisses++;
       try {
-        offers = await callProvider(deps, query, budget, (m) => providerNotes.add(m));
+        offers = await callProvider(deps, query, budget, (m) => emptyResultNotes.add(m));
         deps.cache.set(key, offers);
       } catch (err) {
         if (err instanceof AttemptsExhaustedError) skipped++;
@@ -186,7 +186,8 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
   if (failed > 0) {
     notes.push(`${failed} price lookups failed (${[...failureNotes].join("; ")}), so these results are partial.`);
   }
-  notes.push(...providerNotes);
+  // An empty sampled date is normal when other dates priced; it is only worth a note if nothing did.
+  if (store.offers("out").length === 0) notes.push(...emptyResultNotes);
   if (ranked.combinations.length === 0) notes.push("No fare combinations matched the dates and trip length.");
 
   return {

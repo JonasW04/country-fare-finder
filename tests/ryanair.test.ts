@@ -304,6 +304,25 @@ describe("Ryanair request-based budget and return windows", () => {
     expect(res.combinations).toEqual([]);
   });
 
+  it("adds no empty-country note when one sampled date is empty but another returns fares", async () => {
+    const impl: typeof fetch = async (input) => {
+      const url = new URL(String(input));
+      const from = url.searchParams.get("departureAirportIataCode") ?? "";
+      const day = url.searchParams.get("outboundDepartureDateFrom") ?? "";
+      const fares = !url.searchParams.has("arrivalCountryCode")
+        ? from === "FCO"
+          ? [leg("FCO", "OSL", "2027-03-08", 30)]
+          : []
+        : day === "2027-03-03"
+          ? []
+          : [leg(from, "FCO", day, 20)];
+      return new Response(JSON.stringify({ fares }), { status: 200 });
+    };
+    const res = await run(60, impl);
+    expect(res.combinations.length).toBeGreaterThan(0);
+    expect(res.notes.filter((n) => /no fares from/.test(n))).toEqual([]);
+  });
+
   it("counts a retry as another request", async () => {
     let n = 0;
     const impl: typeof fetch = async () => {
