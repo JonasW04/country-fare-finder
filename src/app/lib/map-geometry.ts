@@ -81,3 +81,8 @@ export function pinToFrame(p: Point, width: number, height: number, inset: numbe
   const bearing = (Math.atan2(p[0] - c[0], -(p[1] - c[1])) * 180) / Math.PI;
   return edgePoint(c, bearing, width, height, inset);
 }
+
+/** Tenth-of-a-pixel precision: finer than any screen, and server and client floats agree at hydration. */
+export function roundPoint(p: Point): Point {
+  return [Math.round(p[0] * 10) / 10, Math.round(p[1] * 10) / 10];
+}
