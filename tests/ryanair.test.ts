@@ -150,6 +150,7 @@ describe("Ryanair through the search engine", () => {
     maxProviderCalls: 1000,
     cacheTtlMs: 60_000,
     maxDatesPerLeg: 1,
+    verifyTop: 0,
   };
 
   it("retries a 429, then surrenders with a partial result and a note, inventing no fare", async () => {
@@ -209,6 +210,7 @@ describe("Ryanair request-based budget and return windows", () => {
     maxProviderCalls: 60,
     cacheTtlMs: 60_000,
     maxDatesPerLeg: 3,
+    verifyTop: 0,
   };
   const airportCount = candidateAirports("IT", ["DUB"]).length;
 
@@ -249,39 +251,34 @@ describe("Ryanair request-based budget and return windows", () => {
       sleep: async () => {},
     });
 
-  it("covers a full country search with one request per outbound date plus one per airport", async () => {
+  it("prices the country in three outbound chunks and asks returns only where an outbound fare exists", async () => {
     const { impl, calls } = fareFetch();
     const res = await run(60, impl);
 
+    // Only FCO has an outbound fare, so returns go to the Rome airports alone: FCO and CIA, three chunks each.
     expect(airportCount).toBeGreaterThan(3);
-    expect(calls).toHaveLength(3 + airportCount);
+    expect(calls).toHaveLength(3 + 2 * 3);
     expect(res.providerCalls).toBe(calls.length);
     expect(res.budget).toEqual({ max: 60, used: calls.length, exhausted: false });
-    expect(res.lookupsPlanned).toBe(3 * airportCount + airportCount);
+    expect(res.lookupsPlanned).toBe(3 * airportCount + 2 * 3);
     expect(res.lookupsPlanned).toBeGreaterThan(res.providerCalls);
     expect(res.lookupsSkipped).toBe(0);
     expect(res.partial).toBe(false);
     expect(res.combinations.length).toBeGreaterThan(0);
   });
 
-  it("asks for each return airport once, over the whole return window", async () => {
+  it("splits the outbound and return windows into contiguous chunks", async () => {
     const { impl, calls } = fareFetch();
     await run(60, impl);
 
+    const window = (u: URL) => `${u.searchParams.get("outboundDepartureDateFrom")}..${u.searchParams.get("outboundDepartureDateTo")}`;
     const returns = calls.filter((u) => !u.searchParams.has("arrivalCountryCode"));
-    expect(returns).toHaveLength(airportCount);
-    for (const url of returns) {
-      expect(url.searchParams.get("arrivalAirportIataCode")).toBe("DUB");
-      // earliest + minNights through latest + maxNights; MAX_DATES_PER_LEG does not thin this.
-      expect(url.searchParams.get("outboundDepartureDateFrom")).toBe("2027-03-06");
-      expect(url.searchParams.get("outboundDepartureDateTo")).toBe("2027-03-12");
-    }
+    for (const url of returns) expect(url.searchParams.get("arrivalAirportIataCode")).toBe("DUB");
+    // earliest + minNights through latest + maxNights, 7 days in 3 chunks.
+    expect([...new Set(returns.map(window))].sort()).toEqual(["2027-03-06..2027-03-08", "2027-03-09..2027-03-10", "2027-03-11..2027-03-12"]);
+    expect([...new Set(returns.map((u) => u.searchParams.get("departureAirportIataCode")))].sort()).toEqual(["CIA", "FCO"]);
     const outbound = calls.filter((u) => u.searchParams.has("arrivalCountryCode"));
-    expect(outbound.map((u) => u.searchParams.get("outboundDepartureDateFrom")).sort()).toEqual([
-      "2027-03-01",
-      "2027-03-03",
-      "2027-03-05",
-    ]);
+    expect(outbound.map(window).sort()).toEqual(["2027-03-01..2027-03-02", "2027-03-03..2027-03-04", "2027-03-05..2027-03-05"]);
   });
 
   it("stops at the request budget and reports the rest as skipped", async () => {
@@ -344,12 +341,12 @@ describe("Ryanair request-based budget and return windows", () => {
 });
 
 describe("provider selection", () => {
-  it("selects ryanair without credentials and gives it concurrency 2", () => {
+  it("selects ryanair without credentials and gives it concurrency 2 and 90 calls", () => {
     const sel = readProviderSelection({ FLIGHT_PROVIDER: "ryanair" });
     expect(sel.provider.name).toBe("ryanair");
     expect(sel.fellBack).toBe(false);
     expect(sel.credentialsPresent).toBe(false);
-    expect(sel.defaults).toEqual({ concurrency: 2 });
+    expect(sel.defaults).toEqual({ concurrency: 2, maxProviderCalls: 90 });
   });
 
   it("keeps mock as the default", () => {

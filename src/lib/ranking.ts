@@ -3,7 +3,9 @@ import { nightsBetween } from "./dates";
 import type { Airport } from "./airports";
 import type { Offer } from "./providers/types";
 
-export const DEFAULT_PER_CITY_CAP = 20;
+// A 31-day fare calendar yields one offer per day per airport; a lower cap would drop days
+// before trip lengths are paired.
+export const DEFAULT_PER_CITY_CAP = 64;
 
 export type Direction = "out" | "in";
 
@@ -174,4 +176,65 @@ export function rankCombinations(input: RankInput): RankResult {
     .map((g) => g.airport.metroName);
 
   return { combinations, citiesWithoutReturn: [...new Set(missing)].sort() };
+}
+
+type LegRef = Pick<Offer, "origin" | "destination" | "date">;
+
+export function legKey(leg: LegRef): string {
+  return `${leg.origin}|${leg.destination}|${leg.date}`;
+}
+
+export function hasEstimateLeg(c: Combination): boolean {
+  return Boolean(c.outbound.estimate || c.inbound.estimate);
+}
+
+/** Unique estimate legs of the first `top` combinations that still carry one, in rank order. */
+export function estimateLegsToVerify(combinations: Combination[], top: number, attempted: ReadonlySet<string> = new Set()): Offer[] {
+  // A leg whose exact search already came back empty keeps its estimate; asking again would cost the same.
+  const open = (leg: Offer) => leg.estimate === true && !attempted.has(legKey(leg));
+  const legs = new Map<string, Offer>();
+  // Only the top `top` combinations matter: once those are exact (or tried), deeper ones can wait.
+  for (const c of combinations.slice(0, Math.max(0, top))) {
+    for (const leg of [c.outbound, c.inbound]) {
+      if (open(leg) && !legs.has(legKey(leg))) legs.set(legKey(leg), leg);
+    }
+  }
+  return [...legs.values()];
+}
+
+/** Cheapest usable exact (non-estimate) offer per leg, to stand in for that leg's calendar low. */
+export function exactReplacements(offers: Offer[], currency: string): Map<string, Offer> {
+  const best = new Map<string, Offer>();
+  for (const o of offers) {
+    if (o.estimate || o.currency !== currency || !Number.isFinite(o.price)) continue;
+    const current = best.get(legKey(o));
+    if (!current || compareOffers(o, current) < 0) best.set(legKey(o), o);
+  }
+  return best;
+}
+
+/**
+ * Swaps each estimate leg for its exact quote when one exists, even a dearer one: the calendar low
+ * was never bookable, so ranking must follow the quote.
+ */
+/**
+ * Median ratio of exact fare to calendar low over the legs re-checked so far, kept inside [1, 2]:
+ * a calendar low is a floor, and one odd quote should not double every other estimate.
+ */
+export function estimateMarkup(ratios: number[]): number {
+  const finite = ratios.filter(Number.isFinite).sort((a, b) => a - b);
+  if (finite.length === 0) return 1;
+  const mid = Math.floor(finite.length / 2);
+  const median = finite.length % 2 ? (finite[mid] ?? 1) : ((finite[mid - 1] ?? 1) + (finite[mid] ?? 1)) / 2;
+  return Math.min(2, Math.max(1, median));
+}
+
+/** Estimate legs priced at `factor` times their calendar low, rounded to cents; exact legs untouched. */
+export function scaleEstimates(offers: Offer[], factor: number): Offer[] {
+  if (factor === 1) return offers;
+  return offers.map((o) => (o.estimate ? { ...o, price: Math.round(o.price * factor * 100) / 100 } : o));
+}
+
+export function replaceEstimates(offers: Offer[], replacements: Map<string, Offer>): Offer[] {
+  return offers.map((o) => (o.estimate ? (replacements.get(legKey(o)) ?? o) : o));
 }

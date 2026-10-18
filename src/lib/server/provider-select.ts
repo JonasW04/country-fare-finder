@@ -16,20 +16,26 @@ export interface ProviderSelection {
 
 type Env = Record<string, string | undefined>;
 
+// Countries with hundreds of airports would otherwise plan thousands of mock lookups.
+const MOCK_DEFAULTS: ProviderDefaults = { maxAirportsPerCountry: 15 };
+
 export function readProviderSelection(env: Env = process.env): ProviderSelection {
   const choice = env.FLIGHT_PROVIDER?.trim().toLowerCase();
   const requested = choice === "ryanair" || choice === "ignav" ? choice : "mock";
   const apiKey = env.IGNAV_API_KEY?.trim() ?? "";
 
   if (requested === "ignav") {
-    if (!apiKey) return { provider: new MockProvider(), requested, fellBack: true, credentialsPresent: false };
+    if (!apiKey) {
+      return { provider: new MockProvider(), requested, fellBack: true, credentialsPresent: false, defaults: MOCK_DEFAULTS };
+    }
     return {
       provider: new IgnavProvider({ apiKey }),
       requested,
       fellBack: false,
       credentialsPresent: true,
-      // The free tier allows 1000 requests a month, so a default search stays near 24 requests.
-      defaults: { maxDatesPerLeg: 2, maxAirportsPerCountry: 6 },
+      // One fare-calendar request covers an airport's whole window, so 12 airports cost about 24
+      // calendar requests plus exact re-checks of the top 5 combinations (usually 10, at most 20).
+      defaults: { maxAirportsPerCountry: 12, verifyTop: 5 },
     };
   }
 
@@ -40,10 +46,17 @@ export function readProviderSelection(env: Env = process.env): ProviderSelection
       requested,
       fellBack: false,
       credentialsPresent: false,
-      defaults: { concurrency: RyanairProvider.defaultConcurrency },
+      // Chunked return windows for every city with an outbound fare need more than the global 60.
+      defaults: { concurrency: RyanairProvider.defaultConcurrency, maxProviderCalls: 90 },
     };
   }
-  return { provider: new MockProvider(), requested, fellBack: false, credentialsPresent: Boolean(apiKey) };
+  return {
+    provider: new MockProvider(),
+    requested,
+    fellBack: false,
+    credentialsPresent: Boolean(apiKey),
+    defaults: MOCK_DEFAULTS,
+  };
 }
 
 // One provider instance per process so provider-side caches are reused between searches.

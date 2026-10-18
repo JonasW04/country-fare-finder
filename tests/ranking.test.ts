@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OfferStore, rankCombinations } from "@/lib/ranking";
+import { OfferStore, estimateLegsToVerify, estimateMarkup, exactReplacements, rankCombinations, replaceEstimates, scaleEstimates } from "@/lib/ranking";
 import { sampleDates } from "@/lib/dates";
 import { airport, offer } from "./helpers";
 
@@ -129,5 +129,58 @@ describe("sampleDates", () => {
     expect(sampleDates(days, 1)).toEqual(["d0"]);
     expect(sampleDates(["d0"], 3)).toEqual(["d0"]);
     expect(sampleDates([], 3)).toEqual([]);
+  });
+});
+
+describe("exact re-check of estimate legs", () => {
+  const est = (from: string, to: string, date: string, price: number) => offer(from, to, date, price, { estimate: true, carriers: [] });
+
+  it("picks the unique estimate legs of the top combinations that have one", () => {
+    const outbound = [est("MAD", "FCO", "2027-03-01", 10), offer("MAD", "VCE", "2027-03-01", 15)];
+    const inbound = [est("FCO", "MAD", "2027-03-08", 10), offer("VCE", "MAD", "2027-03-08", 12)];
+    const { combinations } = rankCombinations({ ...base, outbound, inbound });
+    const legs = estimateLegsToVerify(combinations, 2);
+    expect(legs.map((l) => `${l.origin}-${l.destination}`)).toEqual(["MAD-FCO", "FCO-MAD"]);
+    expect(estimateLegsToVerify(combinations, 0)).toEqual([]);
+  });
+
+  it("swaps an estimate for the cheapest exact quote of the same leg, even a dearer one", () => {
+    const exact = exactReplacements(
+      [
+        offer("MAD", "FCO", "2027-03-01", 140),
+        offer("MAD", "FCO", "2027-03-01", 120),
+        offer("MAD", "FCO", "2027-03-02", 50),
+        offer("MAD", "FCO", "2027-03-01", 30, { currency: "USD" }),
+        est("MAD", "FCO", "2027-03-01", 5),
+      ],
+      "EUR",
+    );
+    const outbound = replaceEstimates([est("MAD", "FCO", "2027-03-01", 20), est("MAD", "VCE", "2027-03-01", 60)], exact);
+    expect(outbound.map((o) => [o.price, Boolean(o.estimate)])).toEqual([
+      [120, false],
+      [60, true],
+    ]);
+
+    const inbound = [offer("FCO", "MAD", "2027-03-08", 10), offer("VCE", "MAD", "2027-03-08", 10)];
+    const { combinations } = rankCombinations({ ...base, outbound, inbound });
+    // Rome led on its calendar low; its exact quote drops it behind Venice.
+    expect(combinations.map((c) => c.flyIn.city)).toEqual(["Venice", "Venice", "Rome", "Rome"]);
+  });
+});
+
+describe("estimate markup", () => {
+  it("takes the median exact-to-calendar ratio and keeps it between 1 and 2", () => {
+    expect(estimateMarkup([])).toBe(1);
+    expect(estimateMarkup([1.1, 1.3, 1.2])).toBeCloseTo(1.2);
+    expect(estimateMarkup([1.1, 1.3])).toBeCloseTo(1.2);
+    expect(estimateMarkup([0.8, 0.9])).toBe(1);
+    expect(estimateMarkup([3, 4, 5])).toBe(2);
+  });
+
+  it("scales only estimate legs", () => {
+    const leg = { origin: "LHR", destination: "FCO", date: "2027-03-01", price: 100, currency: "EUR", carriers: [] };
+    const [estimate, exact] = scaleEstimates([{ ...leg, estimate: true }, leg], 1.15);
+    expect(estimate?.price).toBe(115);
+    expect(exact?.price).toBe(100);
   });
 });
