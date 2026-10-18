@@ -29,6 +29,8 @@ export interface SearchOptions {
    * search's call budget is spent, so the budget counts requests rather than logical lookups.
    */
   onRequest?: () => void;
+  /** Lets a provider report a limitation or oddity that should reach the search response notes. */
+  onNote?: (message: string) => void;
 }
 
 export interface FlightProvider {

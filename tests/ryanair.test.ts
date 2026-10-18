@@ -57,7 +57,8 @@ describe("RyanairProvider", () => {
     const { url, userAgent } = firstCall(calls);
     expect(`${url.origin}${url.pathname}`).toBe(RYANAIR_FARES_URL);
     expect(url.searchParams.get("departureAirportIataCode")).toBe("OSL");
-    expect(url.searchParams.get("arrivalCountryCode")).toBe("IT");
+    // Uppercase silently returns zero fares on the live endpoint, so the code must go out lowercase.
+    expect(url.searchParams.get("arrivalCountryCode")).toBe("it");
     expect(url.searchParams.get("outboundDepartureDateFrom")).toBe("2027-03-02");
     expect(url.searchParams.get("outboundDepartureDateTo")).toBe("2027-03-02");
     expect(userAgent).toMatch(/Mozilla/);
@@ -91,9 +92,22 @@ describe("RyanairProvider", () => {
     expect(url.searchParams.has("arrivalCountryCode")).toBe(false);
   });
 
-  it("treats an empty fares array as no offers, not an error", async () => {
+  it("treats an empty fares array as no offers, not an error, and notes an empty country answer", async () => {
     const { impl } = stubFetch(json({ fares: [] }));
-    expect(await new RyanairProvider({ fetchImpl: impl }).searchOffers(query())).toEqual([]);
+    const notes: string[] = [];
+    const offers = await new RyanairProvider({ fetchImpl: impl }).searchOffers(query(), { onNote: (m) => notes.push(m) });
+    expect(offers).toEqual([]);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatch(/no fares from OSL to country it/);
+  });
+
+  it("does not note an empty answer for an airport-specific call", async () => {
+    const { impl } = stubFetch(json({ fares: [] }));
+    const notes: string[] = [];
+    await new RyanairProvider({ fetchImpl: impl }).searchOffers(query({ origin: "FCO", destination: "OSL" }), {
+      onNote: (m) => notes.push(m),
+    });
+    expect(notes).toEqual([]);
   });
 
   it("reports a schema mismatch as a provider limitation", async () => {
@@ -280,6 +294,14 @@ describe("Ryanair request-based budget and return windows", () => {
     expect(res.lookupsSkipped).toBeGreaterThan(0);
     expect(res.partial).toBe(true);
     expect(res.notes.join(" ")).toMatch(/budget \(5\) exhausted/);
+  });
+
+  it("surfaces an empty country answer in the response notes, once per origin", async () => {
+    const impl: typeof fetch = async () => new Response(JSON.stringify({ fares: [] }), { status: 200 });
+    const res = await run(60, impl);
+    const emptyNotes = res.notes.filter((n) => /no fares from OSL to country it/.test(n));
+    expect(emptyNotes).toHaveLength(1);
+    expect(res.combinations).toEqual([]);
   });
 
   it("counts a retry as another request", async () => {

@@ -107,7 +107,8 @@ export class RyanairProvider implements FlightProvider {
       currency: query.currency,
       limit: "100",
     });
-    if (country) params.set("arrivalCountryCode", country);
+    // The endpoint silently returns no fares for an uppercase code, so this must stay lowercase.
+    if (country) params.set("arrivalCountryCode", country.toLowerCase());
     else params.set("arrivalAirportIataCode", query.destination);
 
     // Counted here, not per lookup: shared and cached lookups never reach this line.
@@ -126,6 +127,14 @@ export class RyanairProvider implements FlightProvider {
     } catch {
       throw mismatch("body is not JSON");
     }
-    return parseFares(body);
+    const fares = parseFares(body);
+    if (country && fares.length === 0) {
+      // A well-formed but empty country answer is how the endpoint fails quietly (for example on a bad
+      // country code), so surface it instead of letting it look like "no flights".
+      options.onNote?.(
+        `Ryanair returned no fares from ${query.origin} to country ${country.toLowerCase()} while otherwise answering; the route may not be served or the endpoint may have changed.`,
+      );
+    }
+    return fares;
   }
 }

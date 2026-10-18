@@ -87,7 +87,10 @@ function cacheKey(provider: string, q: OfferQuery): string {
   return [provider, q.origin, q.destination, q.date, q.dateTo ?? "", q.cabin, q.adults, q.currency].join("|");
 }
 
-async function callProvider(deps: SearchDeps, query: OfferQuery, budget: CallBudget): Promise<Offer[]> {
+async function callProvider(deps: SearchDeps, query: OfferQuery,
+  budget: CallBudget,
+  onNote: (message: string) => void,
+): Promise<Offer[]> {
   const { config, provider } = deps;
   return withRetry(
     async () => {
@@ -96,6 +99,7 @@ async function callProvider(deps: SearchDeps, query: OfferQuery, budget: CallBud
       try {
         return await provider.searchOffers(query, {
           signal: controller.signal,
+          onNote,
           // Metered providers spend the budget themselves, once per real HTTP request.
           onRequest: provider.meteredRequests
             ? () => {
@@ -132,6 +136,7 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
   let skipped = 0;
   let failed = 0;
   const failureNotes = new Set<string>();
+  const providerNotes = new Set<string>();
 
   const tasks = lookups.map(({ direction, query }) => async () => {
     const key = cacheKey(deps.provider.name, query);
@@ -141,7 +146,7 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
     } else {
       cacheMisses++;
       try {
-        offers = await callProvider(deps, query, budget);
+        offers = await callProvider(deps, query, budget, (m) => providerNotes.add(m));
         deps.cache.set(key, offers);
       } catch (err) {
         if (err instanceof AttemptsExhaustedError) skipped++;
@@ -181,6 +186,7 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
   if (failed > 0) {
     notes.push(`${failed} price lookups failed (${[...failureNotes].join("; ")}), so these results are partial.`);
   }
+  notes.push(...providerNotes);
   if (ranked.combinations.length === 0) notes.push("No fare combinations matched the dates and trip length.");
 
   return {
