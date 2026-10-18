@@ -1,12 +1,13 @@
 // Regenerates data/airports.json from the public OurAirports CSVs.
 //
-// Usage: node scripts/build-airports.mjs [--countries=ES,IT,PT,FR,GR,TH] [--out=data/airports.json]
+// Usage: node scripts/build-airports.mjs [--countries=ES,IT,...] [--out=data/airports.json]
 // The country list can also come from the AIRPORT_COUNTRIES env var.
 import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { CITY_NAMES } from "./city-names.mjs";
+import { cityFor, download, parseArgs } from "./ourairports.mjs";
 
-const BASE = "https://davidmegginson.github.io/ourairports-data";
-const DEFAULT_COUNTRIES = ["ES", "IT", "PT", "FR", "GR", "TH"];
+const DEFAULT_COUNTRIES = ["ES", "IT", "PT", "FR", "GR", "TH", "DE", "GB", "NL", "HR", "NO", "SE", "TR", "US", "JP"];
 
 // OurAirports has no metro-area concept, so same-metro airports are listed by hand.
 // Anything not listed is its own metro, keyed by IATA code.
@@ -17,6 +18,15 @@ const METRO_GROUPS = {
   BKK: { name: "Bangkok", airports: ["BKK", "DMK"] },
   VCE: { name: "Venice", airports: ["VCE", "TSF"] },
   LIS: { name: "Lisbon", airports: ["LIS"] },
+  LON: { name: "London", airports: ["LHR", "LGW", "STN", "LTN", "LCY", "SEN"] },
+  NYC: { name: "New York", airports: ["JFK", "LGA", "EWR"] },
+  WAS: { name: "Washington", airports: ["IAD", "DCA", "BWI"] },
+  CHI: { name: "Chicago", airports: ["ORD", "MDW"] },
+  TYO: { name: "Tokyo", airports: ["HND", "NRT"] },
+  OSA: { name: "Osaka", airports: ["KIX", "ITM", "UKB"] },
+  STO: { name: "Stockholm", airports: ["ARN", "BMA", "NYO"] },
+  OSL: { name: "Oslo", airports: ["OSL", "TRF", "RYG"] },
+  IST: { name: "Istanbul", airports: ["IST", "SAW"] },
 };
 
 // OurAirports marks dozens of airports "large", so size alone cannot say which ones matter. This is a
@@ -29,6 +39,15 @@ const TRAFFIC_ORDER = {
   FR: ["CDG", "ORY", "NCE", "LYS", "MRS", "TLS", "BOD", "NTE", "BVA", "MPL"],
   GR: ["ATH", "HER", "SKG", "RHO", "CFU", "CHQ", "JTR", "JMK", "KGS", "ZTH"],
   TH: ["BKK", "DMK", "HKT", "CNX", "USM", "KBV", "HDY"],
+  DE: ["FRA", "MUC", "DUS", "BER", "HAM", "CGN", "STR", "HAJ", "NUE", "LEJ"],
+  GB: ["LHR", "LGW", "MAN", "STN", "EDI", "BHX", "GLA", "BRS", "LTN", "NCL", "BFS", "LPL"],
+  NL: ["AMS", "EIN", "RTM", "MST", "GRQ"],
+  HR: ["ZAG", "SPU", "DBV", "ZAD", "PUY", "RJK", "OSI"],
+  NO: ["OSL", "BGO", "TRD", "SVG", "TOS", "BOO", "AES", "KRS", "TRF"],
+  SE: ["ARN", "GOT", "BMA", "NYO", "MMX", "LLA", "UME", "OSD"],
+  TR: ["IST", "SAW", "AYT", "ESB", "ADB", "DLM", "BJV", "TZX", "GZT", "ASR"],
+  US: ["ATL", "DFW", "DEN", "ORD", "LAX", "JFK", "CLT", "LAS", "MCO", "MIA", "PHX", "SEA", "SFO", "EWR", "IAH"],
+  JP: ["HND", "NRT", "KIX", "FUK", "CTS", "OKA", "NGO", "ITM", "KOJ", "HIJ", "SDJ", "UKB"],
 };
 
 function trafficRank(country, iata) {
@@ -36,60 +55,11 @@ function trafficRank(country, iata) {
   return index === -1 ? {} : { rank: index + 1 };
 }
 
-function parseArgs(argv) {
-  const args = {};
-  for (const a of argv) {
-    const m = /^--([^=]+)=(.*)$/.exec(a);
-    if (m) args[m[1]] = m[2];
-  }
-  return args;
-}
-
-// Minimal RFC 4180 parser: OurAirports quotes names that contain commas.
-function parseCsv(text) {
-  const rows = [];
-  let row = [];
-  let field = "";
-  let quoted = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (quoted) {
-      if (c === '"' && text[i + 1] === '"') {
-        field += '"';
-        i++;
-      } else if (c === '"') quoted = false;
-      else field += c;
-    } else if (c === '"') quoted = true;
-    else if (c === ",") {
-      row.push(field);
-      field = "";
-    } else if (c === "\n" || c === "\r") {
-      if (c === "\r" && text[i + 1] === "\n") i++;
-      row.push(field);
-      field = "";
-      if (row.length > 1 || row[0] !== "") rows.push(row);
-      row = [];
-    } else field += c;
-  }
-  if (field !== "" || row.length) {
-    row.push(field);
-    rows.push(row);
-  }
-  const [header, ...body] = rows;
-  return body.map((r) => Object.fromEntries(header.map((h, i) => [h, r[i] ?? ""])));
-}
-
-async function download(name) {
-  const res = await fetch(`${BASE}/${name}`);
-  if (!res.ok) throw new Error(`Download of ${name} failed with HTTP ${res.status}`);
-  return parseCsv(await res.text());
-}
-
 function metroFor(iata, city) {
   for (const [code, group] of Object.entries(METRO_GROUPS)) {
     if (group.airports.includes(iata)) return { metro: code, metroName: group.name };
   }
-  return { metro: iata, metroName: city };
+  return { metro: iata, metroName: CITY_NAMES[iata] ?? city };
 }
 
 export function buildAirports(airportRows, countryRows, countries) {
@@ -103,8 +73,7 @@ export function buildAirports(airportRows, countryRows, countries) {
         ["large_airport", "medium_airport", "small_airport"].includes(r.type),
     )
     .map((r) => {
-      // Municipalities like "Ferno (VA)" carry a province suffix we do not want to display.
-      const city = (r.municipality || r.name).replace(/\s*\(.*\)\s*$/, "");
+      const city = cityFor(r);
       return {
         iata: r.iata_code,
         name: r.name,

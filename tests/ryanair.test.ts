@@ -86,9 +86,9 @@ describe("RyanairProvider", () => {
 
   it("prices a return to an origin outside the dataset by airport", async () => {
     const { impl, calls } = stubFetch(json({ fares: [] }));
-    await new RyanairProvider({ fetchImpl: impl }).searchOffers(query({ origin: "FCO", destination: "OSL" }));
+    await new RyanairProvider({ fetchImpl: impl }).searchOffers(query({ origin: "FCO", destination: "DUB" }));
     const { url } = firstCall(calls);
-    expect(url.searchParams.get("arrivalAirportIataCode")).toBe("OSL");
+    expect(url.searchParams.get("arrivalAirportIataCode")).toBe("DUB");
     expect(url.searchParams.has("arrivalCountryCode")).toBe(false);
   });
 
@@ -104,7 +104,7 @@ describe("RyanairProvider", () => {
   it("does not note an empty answer for an airport-specific call", async () => {
     const { impl } = stubFetch(json({ fares: [] }));
     const notes: string[] = [];
-    await new RyanairProvider({ fetchImpl: impl }).searchOffers(query({ origin: "FCO", destination: "OSL" }), {
+    await new RyanairProvider({ fetchImpl: impl }).searchOffers(query({ origin: "FCO", destination: "DUB" }), {
       onNote: (m) => notes.push(m),
     });
     expect(notes).toEqual([]);
@@ -131,7 +131,7 @@ describe("RyanairProvider", () => {
 
 describe("Ryanair through the search engine", () => {
   const request: SearchRequest = {
-    origin: "OSL",
+    origin: "DUB",
     country: "IT",
     earliest: "2027-03-02",
     latest: "2027-03-02",
@@ -190,7 +190,7 @@ describe("Ryanair through the search engine", () => {
 
 describe("Ryanair request-based budget and return windows", () => {
   const request: SearchRequest = {
-    origin: "OSL",
+    origin: "DUB",
     country: "IT",
     earliest: "2027-03-01",
     latest: "2027-03-05",
@@ -210,7 +210,7 @@ describe("Ryanair request-based budget and return windows", () => {
     cacheTtlMs: 60_000,
     maxDatesPerLeg: 3,
   };
-  const airportCount = candidateAirports("IT", ["OSL"]).length;
+  const airportCount = candidateAirports("IT", ["DUB"]).length;
 
   const leg = (from: string, to: string, date: string, value: number) => ({
     outbound: {
@@ -232,7 +232,7 @@ describe("Ryanair request-based budget and return windows", () => {
       const fares = url.searchParams.has("arrivalCountryCode")
         ? [leg(from, "FCO", day, 20)]
         : from === "FCO"
-          ? [leg("FCO", "OSL", "2027-03-08", 30)]
+          ? [leg("FCO", "DUB", "2027-03-08", 30)]
           : [];
       return new Response(JSON.stringify({ fares }), { status: 200 });
     };
@@ -271,7 +271,7 @@ describe("Ryanair request-based budget and return windows", () => {
     const returns = calls.filter((u) => !u.searchParams.has("arrivalCountryCode"));
     expect(returns).toHaveLength(airportCount);
     for (const url of returns) {
-      expect(url.searchParams.get("arrivalAirportIataCode")).toBe("OSL");
+      expect(url.searchParams.get("arrivalAirportIataCode")).toBe("DUB");
       // earliest + minNights through latest + maxNights; MAX_DATES_PER_LEG does not thin this.
       expect(url.searchParams.get("outboundDepartureDateFrom")).toBe("2027-03-06");
       expect(url.searchParams.get("outboundDepartureDateTo")).toBe("2027-03-12");
@@ -299,7 +299,7 @@ describe("Ryanair request-based budget and return windows", () => {
   it("surfaces an empty country answer in the response notes, once per origin", async () => {
     const impl: typeof fetch = async () => new Response(JSON.stringify({ fares: [] }), { status: 200 });
     const res = await run(60, impl);
-    const emptyNotes = res.notes.filter((n) => /no fares from OSL to country it/.test(n));
+    const emptyNotes = res.notes.filter((n) => /no fares from DUB to country it/.test(n));
     expect(emptyNotes).toHaveLength(1);
     expect(res.combinations).toEqual([]);
   });
@@ -311,7 +311,7 @@ describe("Ryanair request-based budget and return windows", () => {
       const day = url.searchParams.get("outboundDepartureDateFrom") ?? "";
       const fares = !url.searchParams.has("arrivalCountryCode")
         ? from === "FCO"
-          ? [leg("FCO", "OSL", "2027-03-08", 30)]
+          ? [leg("FCO", "DUB", "2027-03-08", 30)]
           : []
         : day === "2027-03-03"
           ? []
