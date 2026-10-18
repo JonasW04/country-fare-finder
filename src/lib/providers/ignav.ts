@@ -1,3 +1,4 @@
+import { findAirport } from "../airports";
 import { maskSecrets } from "./mask";
 import { ProviderError } from "./types";
 import type { FlightProvider, Offer, OfferQuery, SearchOptions } from "./types";
@@ -31,7 +32,14 @@ interface Itinerary {
   currency: string;
   carriers: string[];
   requiresSelfTransfer: boolean;
+  /** The airports the traveller really leaves from and lands at, which differ from a metro query code. */
+  departureAirport?: string;
+  arrivalAirport?: string;
 }
+
+// Only metro codes Ignav is known to accept. OurAirports-style groupings such as BKK are not official
+// IATA metro codes, so they stay out of this list.
+const QUERYABLE_METROS = new Set(["ROM", "MIL", "PAR"]);
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
@@ -52,9 +60,15 @@ function parseItineraries(body: unknown): Itinerary[] {
       const code = isRecord(s) ? s.marketing_carrier_code : undefined;
       return typeof code === "string" && code ? [code] : [];
     });
+    const airportAt = (segment: unknown, field: string): string | undefined => {
+      const code = isRecord(segment) ? segment[field] : undefined;
+      return typeof code === "string" && code ? code.toUpperCase() : undefined;
+    };
     return {
       price: amount,
       currency,
+      departureAirport: airportAt(segments[0], "departure_airport"),
+      arrivalAirport: airportAt(segments[segments.length - 1], "arrival_airport"),
       carriers: [...new Set(carriers)],
       requiresSelfTransfer: isRecord(raw) && raw.requires_self_transfer === true,
     };
@@ -79,6 +93,12 @@ export class IgnavProvider implements FlightProvider {
 
   constructor(private readonly config: IgnavConfig) {
     this.fetchImpl = config.fetchImpl ?? fetch;
+  }
+
+  /** One call to ROM, MIL or PAR covers every airport of that metro, so a metro costs a single slot. */
+  cityQueryCode(iata: string): string {
+    const metro = findAirport(iata)?.metro;
+    return metro && QUERYABLE_METROS.has(metro) ? metro : iata;
   }
 
   async searchOffers(query: OfferQuery, options: SearchOptions = {}): Promise<Offer[]> {
@@ -114,15 +134,22 @@ export class IgnavProvider implements FlightProvider {
     } catch {
       throw mismatch("body is not JSON");
     }
-    const cheapest = parseItineraries(json).reduce<Itinerary | undefined>(
-      (best, it) => (!best || it.price < best.price ? it : best),
-      undefined,
-    );
-    if (!cheapest) return [];
+    // A metro query can land at any airport of the metro. Only itineraries ending at a known airport of
+    // that metro are usable, so an unexpected airport can never be mislabelled as another one.
+    const origin = (it: Itinerary) => (QUERYABLE_METROS.has(query.origin) ? it.departureAirport : query.origin);
+    const destination = (it: Itinerary) => (QUERYABLE_METROS.has(query.destination) ? it.arrivalAirport : query.destination);
+    const inMetro = (iata: string | undefined, code: string) =>
+      !QUERYABLE_METROS.has(code) || (iata !== undefined && findAirport(iata)?.metro === code);
+    const cheapest = parseItineraries(json)
+      .filter((it) => inMetro(origin(it), query.origin) && inMetro(destination(it), query.destination))
+      .reduce<Itinerary | undefined>((best, it) => (!best || it.price < best.price ? it : best), undefined);
+    const from = cheapest && origin(cheapest);
+    const to = cheapest && destination(cheapest);
+    if (!cheapest || !from || !to) return [];
     return [
       {
-        origin: query.origin,
-        destination: query.destination,
+        origin: from,
+        destination: to,
         date: query.date,
         price: cheapest.price,
         currency: cheapest.currency,

@@ -1,4 +1,4 @@
-import { candidateAirports } from "../airports";
+import { airportsForCountry, candidateAirports } from "../airports";
 import { bookingLink } from "../booking-link";
 import { addDays, enumerateDates, sampleDates } from "../dates";
 import { ProviderError } from "../providers/types";
@@ -130,8 +130,12 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
   // A cap keeps the largest airports and collapses metro siblings so the cap buys distinct cities.
   const candidates = candidateAirports(req.country, origins, cap ?? Infinity, cap !== undefined);
   const budget = new CallBudget(deps.config.maxProviderCalls);
-  const store = new OfferStore(candidates);
-  const lookups = planLookups(req, candidates.map((a) => a.iata), deps.config.maxDatesPerLeg, Boolean(deps.provider.rangeQueries));
+  // A metro query can return any airport of that metro, so offers must resolve for all of them.
+  const metros = new Set(candidates.map((a) => a.metro));
+  const known = airportsForCountry(req.country).filter((a) => metros.has(a.metro) && !origins.includes(a.iata));
+  const store = new OfferStore(known);
+  const queryCodes = candidates.map((a) => deps.provider.cityQueryCode?.(a.iata) ?? a.iata);
+  const lookups = planLookups(req, queryCodes,deps.config.maxDatesPerLeg, Boolean(deps.provider.rangeQueries));
 
   let cacheHits = 0;
   let cacheMisses = 0;
@@ -181,7 +185,7 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
   const ranked = rankCombinations({
     outbound: store.offers("out"),
     inbound: store.offers("in"),
-    airports: candidates,
+    airports: known,
     currency: req.currency,
     minNights: req.minNights,
     maxNights: req.maxNights,

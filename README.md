@@ -51,11 +51,13 @@ Set `FLIGHT_PROVIDER=ignav` and provide `IGNAV_API_KEY` in the environment. Igna
 
 Ignav has one request per origin, destination and date, and a free tier of 1000 requests a month, so the defaults keep a search small: the 6 largest airports of the country (one per metro, `MAX_AIRPORTS_PER_COUNTRY`) and 2 outbound dates (`MAX_DATES_PER_LEG`). That is 6 airports x 2 dates x 2 directions = **24 requests per search** (48 with a second origin), even for a country with 41 airports. Raising either setting raises the cost proportionally.
 
+Rome, Milan and Paris are queried by their official metro codes (ROM, MIL, PAR), so one request covers FCO+CIA or MXP+LIN+BGY. The offer carries the real airport the fare lands at, and a metro still costs one slot.
+
 The request currency selects Ignav's market (EUR to DE, NOK to NO, SEK to SE, DKK to DK, GBP to GB, USD to US, CHF to CH, PLN to PL, anything else to US). Fares priced in a different currency than requested are left out of the ranking and the response says so. The cheapest itinerary per route and date is used. HTTP 402 (free quota used up), 401 and 403 stop the rest of that search and return the partial result with a note; 429 and 5xx are retried with backoff.
 
 ## How a search works
 
-1. The country expands to its scheduled-service airports from `data/airports.json`, largest first.
+1. The country expands to its scheduled-service airports from `data/airports.json`, busiest first: a hand-kept `rank` per country (set in `scripts/build-airports.mjs`), then size, then IATA. Unranked airports come last.
 2. Up to `MAX_DATES_PER_LEG` outbound dates are sampled across the window (both ends, then midpoints), each paired with a trip length from the min/max range.
 3. Each airport gets a one-way `origin -> airport` lookup and an `airport -> origin` lookup. Lookups run tier by tier so every airport has coverage before any gets extra dates.
 4. `src/lib/ranking.ts` merges airports of one metro (MXP/LIN/BGY count as Milan), pairs outbound and return legs within the trip length, and sorts by total price then city name.

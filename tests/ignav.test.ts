@@ -152,6 +152,73 @@ describe("candidate ordering", () => {
   });
 });
 
+/** A minimal Ignav response whose single itinerary really flies `from` to `to`. */
+const itineraryBody = (from: string, to: string, amount = 50) => ({
+  itineraries: [
+    {
+      price: { amount, currency: "USD" },
+      requires_self_transfer: false,
+      outbound: {
+        segments: [{ marketing_carrier_code: "XX", departure_airport: from, arrival_airport: to }],
+      },
+    },
+  ],
+});
+
+describe("metro queries", () => {
+  it("queries the metro code and maps the real arrival airport back onto the offer", async () => {
+    const { impl, calls } = stubFetch(json(itineraryBody("OSL", "CIA", 61)));
+    const provider = new IgnavProvider({ apiKey: KEY, fetchImpl: impl });
+    expect(provider.cityQueryCode("FCO")).toBe("ROM");
+    expect(provider.cityQueryCode("MXP")).toBe("MIL");
+    expect(provider.cityQueryCode("NAP")).toBe("NAP");
+    // BKK is a grouping in the dataset, not an official metro code, so it is never sent as one.
+    expect(provider.cityQueryCode("DMK")).toBe("DMK");
+
+    const [offer] = await provider.searchOffers(query({ destination: "ROM" }));
+    expect(firstCall(calls).body.destination).toBe("ROM");
+    expect(offer).toMatchObject({ origin: "OSL", destination: "CIA", price: 61 });
+  });
+
+  it("maps the real departure airport on a return leg from a metro", async () => {
+    const { impl } = stubFetch(json(itineraryBody("BGY", "OSL")));
+    const [offer] = await new IgnavProvider({ apiKey: KEY, fetchImpl: impl }).searchOffers(
+      query({ origin: "MIL", destination: "OSL" }),
+    );
+    expect(offer).toMatchObject({ origin: "BGY", destination: "OSL" });
+  });
+
+  it("ignores itineraries that end outside the requested metro", async () => {
+    const { impl } = stubFetch(json(itineraryBody("OSL", "NAP")));
+    expect(await new IgnavProvider({ apiKey: KEY, fetchImpl: impl }).searchOffers(query({ destination: "ROM" }))).toEqual([]);
+  });
+
+  it("ranks a metro as one city through the search engine, whichever airport the fare lands at", async () => {
+    const impl: typeof fetch = async (input, init) => {
+      void input;
+      const { origin, destination } = JSON.parse(String(init?.body)) as { origin: string; destination: string };
+      const real = (code: string) => ({ ROM: "CIA", MIL: "LIN" })[code] ?? code;
+      return new Response(JSON.stringify(itineraryBody(real(origin), real(destination))), { status: 200 });
+    };
+    const selection = readProviderSelection({ FLIGHT_PROVIDER: "ignav", IGNAV_API_KEY: KEY });
+    const res = await runSearch(
+      { origin: "OSL", country: "IT", earliest: "2027-03-01", latest: "2027-03-05", minNights: 5, maxNights: 7, cabin: "ECONOMY", adults: 1, currency: "USD", limit: 100 },
+      {
+        provider: new IgnavProvider({ apiKey: KEY, fetchImpl: impl }),
+        requested: "ignav",
+        fellBack: false,
+        cache: new TtlCache(60_000),
+        config: { ...loadSearchConfig({}, selection.defaults), backoffMs: 0 },
+        sleep: async () => {},
+      },
+    );
+    const flyIns = res.combinations.map((c) => c.flyIn);
+    expect(flyIns).toContainEqual(expect.objectContaining({ iata: "CIA", metro: "ROM" }));
+    expect(flyIns).toContainEqual(expect.objectContaining({ iata: "LIN", metro: "MIL" }));
+    expect(res.partial).toBe(false);
+  });
+});
+
 describe("airport cap", () => {
   it("keeps the largest airports and collapses metro siblings", () => {
     const all = candidateAirports("IT");
@@ -199,6 +266,10 @@ describe("Ignav through the search engine", () => {
     const res = await run(impl);
 
     expect(res.candidateAirports).toBe(6);
+    // Top six by traffic: Rome and Milan each take one slot and are queried by metro code.
+    expect(candidateAirports("IT", [], 6, true).map((a) => a.iata)).toEqual(["FCO", "MXP", "NAP", "VCE", "CTA", "BLQ"]);
+    const outbound = calls.filter((c) => c.body.origin === "OSL").map((c) => c.body.destination);
+    expect([...new Set(outbound)]).toEqual(["ROM", "MIL", "NAP", "VCE", "CTA", "BLQ"]);
     expect(defaults.maxDatesPerLeg).toBe(2);
     expect(calls.length).toBe(24);
     expect(calls.length).toBeLessThanOrEqual(30);

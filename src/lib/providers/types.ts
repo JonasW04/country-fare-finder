@@ -44,6 +44,11 @@ export interface FlightProvider {
   readonly meteredRequests?: boolean;
   /** True when one query can cover a window (`dateTo`), so return legs need one request per airport, not per date. */
   readonly rangeQueries?: boolean;
+  /**
+   * Code to query for a candidate city airport, when one request can cover its whole metro.
+   * The provider maps the real airport back onto each offer it returns.
+   */
+  cityQueryCode?(iata: string): string;
   searchOffers(query: OfferQuery, options?: SearchOptions): Promise<Offer[]>;
 }
 
