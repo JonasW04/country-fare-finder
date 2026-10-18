@@ -37,6 +37,10 @@ export class TtlCache<V> {
     }
   }
 
+  delete(key: string): void {
+    this.entries.delete(key);
+  }
+
   stats(): CacheStats {
     return { hits: this.hits, misses: this.misses, size: this.entries.size };
   }

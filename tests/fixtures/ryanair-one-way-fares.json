@@ -1,0 +1,17 @@
+{"fares":[
+  {"outbound":{
+    "departureAirport":{"countryName":"Norway","iataCode":"OSL","name":"Oslo","city":{"name":"Oslo"}},
+    "arrivalAirport":{"countryName":"Italy","iataCode":"FCO","name":"Rome Fiumicino","city":{"name":"Rome"}},
+    "departureDate":"2027-03-02T20:45:00","arrivalDate":"2027-03-03T00:30:00",
+    "price":{"value":23.99,"currencyCode":"EUR"}}},
+  {"outbound":{
+    "departureAirport":{"countryName":"Norway","iataCode":"OSL","name":"Oslo","city":{"name":"Oslo"}},
+    "arrivalAirport":{"countryName":"Italy","iataCode":"BGY","name":"Milan Bergamo","city":{"name":"Milan"}},
+    "departureDate":"2027-03-02T10:15:00","arrivalDate":"2027-03-02T12:50:00",
+    "price":{"value":41.5,"currencyCode":"EUR"}}},
+  {"outbound":{
+    "departureAirport":{"countryName":"Norway","iataCode":"OSL","name":"Oslo","city":{"name":"Oslo"}},
+    "arrivalAirport":{"countryName":"Italy","iataCode":"ZZZ","name":"Not In Dataset","city":{"name":"Nowhere"}},
+    "departureDate":"2027-03-02T09:00:00","arrivalDate":"2027-03-02T11:30:00",
+    "price":{"value":9.99,"currencyCode":"EUR"}}}
+]}
