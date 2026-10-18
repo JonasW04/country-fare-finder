@@ -134,6 +134,24 @@ describe("IgnavProvider mapping", () => {
   });
 });
 
+describe("candidate ordering", () => {
+  it("orders Spain by traffic rank, then size, then IATA, with unranked airports last", () => {
+    const es = candidateAirports("ES");
+    expect(es.slice(0, 6).map((a) => a.iata)).toEqual(["MAD", "BCN", "PMI", "AGP", "ALC", "LPA"]);
+    const firstUnranked = es.findIndex((a) => a.rank === undefined);
+    expect(firstUnranked).toBeGreaterThan(0);
+    expect(es.slice(firstUnranked).every((a) => a.rank === undefined)).toBe(true);
+    // Among unranked airports the old size-then-IATA order still applies.
+    const tail = es.slice(firstUnranked);
+    const sizes = tail.map((a) => ["large", "medium", "small"].indexOf(a.size));
+    expect(sizes).toEqual([...sizes].sort((a, b) => a - b));
+  });
+
+  it("puts the busiest Italian airports first, not the alphabetical large ones", () => {
+    expect(candidateAirports("IT").slice(0, 4).map((a) => a.iata)).toEqual(["FCO", "MXP", "BGY", "NAP"]);
+  });
+});
+
 describe("airport cap", () => {
   it("keeps the largest airports and collapses metro siblings", () => {
     const all = candidateAirports("IT");

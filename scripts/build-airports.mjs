@@ -19,6 +19,23 @@ const METRO_GROUPS = {
   LIS: { name: "Lisbon", airports: ["LIS"] },
 };
 
+// OurAirports marks dozens of airports "large", so size alone cannot say which ones matter. This is a
+// hand-kept busiest-first order by annual passengers; an airport's rank is its position (1 = busiest).
+// Airports not listed get no rank and sort after every ranked one.
+const TRAFFIC_ORDER = {
+  IT: ["FCO", "MXP", "BGY", "NAP", "VCE", "CTA", "BLQ", "PMO", "LIN", "CAG", "BRI", "PSA", "TRN", "OLB"],
+  ES: ["MAD", "BCN", "PMI", "AGP", "ALC", "LPA", "TFS", "VLC", "SVQ", "IBZ", "BIO", "ACE", "FUE", "TFN"],
+  PT: ["LIS", "OPO", "FAO", "FNC", "PDL"],
+  FR: ["CDG", "ORY", "NCE", "LYS", "MRS", "TLS", "BOD", "NTE", "BVA", "MPL"],
+  GR: ["ATH", "HER", "SKG", "RHO", "CFU", "CHQ", "JTR", "JMK", "KGS", "ZTH"],
+  TH: ["BKK", "DMK", "HKT", "CNX", "USM", "KBV", "HDY"],
+};
+
+function trafficRank(country, iata) {
+  const index = (TRAFFIC_ORDER[country] ?? []).indexOf(iata);
+  return index === -1 ? {} : { rank: index + 1 };
+}
+
 function parseArgs(argv) {
   const args = {};
   for (const a of argv) {
@@ -94,6 +111,7 @@ export function buildAirports(airportRows, countryRows, countries) {
         city,
         country: r.iso_country,
         size: r.type.replace("_airport", ""),
+        ...trafficRank(r.iso_country, r.iata_code),
         ...metroFor(r.iata_code, city),
         lat: Number(Number(r.latitude_deg).toFixed(4)),
         lon: Number(Number(r.longitude_deg).toFixed(4)),
