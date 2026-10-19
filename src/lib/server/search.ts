@@ -33,6 +33,10 @@ export interface SearchDeps {
   cache: TtlCache<Offer[]>;
   config: SearchConfig;
   sleep?: (ms: number) => Promise<void>;
+  /** Receives interim rankings while the search runs. It only reads results, so the final response is the same with or without it. */
+  onProgress?: (progress: SearchProgress) => void;
+  /** Least time between progress reports within a phase; the last lookup of a phase always reports. */
+  progressIntervalMs?: number;
 }
 
 /** One candidate airport of the destination country, for the map and the per-city price list. */
@@ -84,6 +88,21 @@ export interface SearchResponse {
   /** How many of the returned combinations have only exactly quoted legs (no fare-calendar estimate). */
   verifiedCombinations: number;
 }
+
+/** The part of a response that can be shown before the search has finished. */
+export type SearchSnapshot = Pick<SearchResponse, "request" | "combinations" | "citiesWithoutReturn" | "airports" | "origins" | "outboundCalendar">;
+
+export type SearchPhase = "out" | "in" | "verify";
+
+export interface SearchProgress {
+  phase: SearchPhase;
+  /** Lookups settled so far in this phase and how many it plans; the re-check phase counts against its lookup cap. */
+  done: number;
+  total: number;
+  results: SearchSnapshot;
+}
+
+const DEFAULT_PROGRESS_INTERVAL_MS = 250;
 
 function combineTallies(a: PhaseTally, b: PhaseTally): PhaseTally {
   return {
@@ -138,27 +157,55 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
     }
   };
 
-  const outbound = planOutbound(plan);
-  const outTally = await runner.run(outbound, collect);
-  // Returns are only worth asking for cities that can be reached at all.
-  const cities = eligibleCities(store.offers("out"), known, candidates, origins, req.currency);
-  const inbound = planInbound(plan, cities);
-  const tally = combineTallies(outTally, await runner.run(inbound, collect));
-  const coverageLookups = outbound.length + inbound.length;
-  const haltReason = runner.haltReason;
-
-  let outOffers = store.offers("out");
-  let inOffers = store.offers("in");
-  const rank = (limit: number) =>
+  const rankOffers = (outbound: Offer[], inbound: Offer[], limit: number) =>
     rankCombinations({
-      outbound: outOffers,
-      inbound: inOffers,
+      outbound,
+      inbound,
       airports: known,
       currency: req.currency,
       minNights: req.minNights,
       maxNights: req.maxNights,
       limit,
     });
+  const snapshot = (outbound: Offer[], inbound: Offer[]): SearchSnapshot => {
+    const ranked = rankOffers(outbound, inbound, req.limit);
+    return {
+      request: req,
+      combinations: ranked.combinations,
+      citiesWithoutReturn: ranked.citiesWithoutReturn,
+      airports: airportSummaries(known, outbound, inbound, req.currency),
+      origins: originSummaries(origins),
+      outboundCalendar: outboundCalendar(outbound, req.currency),
+    };
+  };
+  const progressInterval = deps.progressIntervalMs ?? DEFAULT_PROGRESS_INTERVAL_MS;
+  // Ranking on every settled lookup would be wasted work when lookups come from cache, so reports are spaced out.
+  const reporter = (phase: SearchPhase, total: number) => {
+    const { onProgress } = deps;
+    if (!onProgress) return undefined;
+    let done = 0;
+    let last = -Infinity;
+    return () => {
+      done++;
+      const now = Date.now();
+      if (done < total && now - last < progressInterval) return;
+      last = now;
+      onProgress({ phase, done, total, results: snapshot(store.offers("out"), store.offers("in")) });
+    };
+  };
+
+  const outbound = planOutbound(plan);
+  const outTally = await runner.run(outbound, collect, reporter("out", outbound.length));
+  // Returns are only worth asking for cities that can be reached at all.
+  const cities = eligibleCities(store.offers("out"), known, candidates, origins, req.currency);
+  const inbound = planInbound(plan, cities);
+  const tally = combineTallies(outTally, await runner.run(inbound, collect, reporter("in", inbound.length)));
+  const coverageLookups = outbound.length + inbound.length;
+  const haltReason = runner.haltReason;
+
+  let outOffers = store.offers("out");
+  let inOffers = store.offers("in");
+  const rank = (limit: number) => rankOffers(outOffers, inOffers, limit);
 
   let verifyLookups = 0;
   if (deps.config.verifyTop > 0 && deps.provider.range?.perDay) {
@@ -185,6 +232,7 @@ export async function runSearch(req: SearchRequest, deps: SearchDeps): Promise<S
       const factor = estimateMarkup(markups);
       outOffers = scaleEstimates(replaceEstimates(baseOut, replacements), factor);
       inOffers = scaleEstimates(replaceEstimates(baseIn, replacements), factor);
+      deps.onProgress?.({ phase: "verify", done: verifyLookups, total: maxLookups, results: snapshot(outOffers, inOffers) });
     }
   }
   const ranked = rank(req.limit);

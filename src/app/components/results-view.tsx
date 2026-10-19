@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { addDays, nightsBetween } from "@/lib/dates";
 import type { Combination } from "@/lib/ranking";
-import type { SearchResponse } from "@/lib/server/search";
+import type { SearchResponse, SearchSnapshot } from "@/lib/server/search";
 import { formatMoney } from "../lib/format";
 import { openJawSaving, visibleTrips, type TripFilter, type TripSort } from "../lib/results";
 import type { SearchForm } from "../lib/search-form";
@@ -11,7 +11,9 @@ import { SearchSummary } from "./search-summary";
 import { TripCard } from "./trip-card";
 
 interface Props {
-  response: SearchResponse;
+  results: SearchSnapshot;
+  /** Null while the search is still streaming; the summary and the empty state wait for it. */
+  response: SearchResponse | null;
   countryName: string;
   originLabel: string;
   selectedMetro: string | null;
@@ -46,14 +48,14 @@ function Segmented<T extends string>({ label, options, value, onChange }: { labe
   );
 }
 
-export function ResultsView({ response, countryName, selectedMetro, onClearMetro, onFocusTrip, onWiden }: Props) {
+export function ResultsView({ results, response, countryName, selectedMetro, onClearMetro, onFocusTrip, onWiden }: Props) {
   const [filter, setFilter] = useState<TripFilter>("all");
   const [sort, setSort] = useState<TripSort>("price");
 
-  const req = response.request;
-  const all = response.combinations;
+  const req = results.request;
+  const all = results.combinations;
 
-  if (all.length === 0) {
+  if (response && all.length === 0) {
     // Widening by a week stays inside the API's 31-day outbound window.
     const widerLatest = addDays(req.latest, Math.min(7, 30 - nightsBetween(req.earliest, req.latest)));
     return (
@@ -120,7 +122,7 @@ export function ResultsView({ response, countryName, selectedMetro, onClearMetro
           ))}
         </ol>
       )}
-      <SearchSummary response={response} />
+      {response ? <SearchSummary response={response} /> : null}
     </section>
   );
 }

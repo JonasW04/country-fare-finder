@@ -2,12 +2,14 @@
 
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import type { Combination } from "@/lib/ranking";
-import type { SearchResponse } from "@/lib/server/search";
+import { SEARCH_STREAM_TYPE } from "@/lib/search-events";
+import type { SearchProgress, SearchResponse } from "@/lib/server/search";
 import { localToday, surpriseWindow } from "../lib/date-presets";
 import { MISSING_ORIGIN } from "../lib/field-errors";
 import { originCodeFromInput } from "../lib/origin-input";
 import { defaultForm, formFromParams, linkHasSearch, paramsFromForm, type SearchForm } from "../lib/search-form";
 import { visibleTrips } from "../lib/results";
+import { isSearchEvent, readNdjson } from "../lib/search-stream";
 import type { CountryAnchors, CountryOption } from "../lib/types";
 import { CountryMap } from "./country-map";
 import { PriceCalendar } from "./price-calendar";
@@ -21,7 +23,7 @@ import { labelForCode, useAirportSuggestions } from "./use-airport-suggestions";
 
 type Status =
   | { kind: "idle" }
-  | { kind: "loading"; form: SearchForm }
+  | { kind: "loading"; form: SearchForm; progress: SearchProgress | null }
   | { kind: "done"; form: SearchForm; response: SearchResponse }
   | { kind: "failed"; form: SearchForm };
 
@@ -44,9 +46,19 @@ type Outcome =
   | { kind: "aborted" }
   | { kind: "done"; response: SearchResponse };
 
-async function requestSearch(form: SearchForm, signal: AbortSignal): Promise<Outcome> {
+/** Asks for a streamed search so the best trips so far can show while the rest is priced. */
+async function requestSearch(form: SearchForm, signal: AbortSignal, onProgress: (progress: SearchProgress) => void): Promise<Outcome> {
   try {
-    const res = await fetch(`/api/search?${paramsFromForm(form)}`, { signal });
+    const res = await fetch(`/api/search?${paramsFromForm(form)}`, { signal, headers: { Accept: SEARCH_STREAM_TYPE } });
+    if (res.ok && res.body && res.headers.get("content-type")?.includes(SEARCH_STREAM_TYPE)) {
+      let outcome: Outcome = { kind: "failed" };
+      await readNdjson(res.body, (line) => {
+        if (!isSearchEvent(line) || signal.aborted) return;
+        if (line.type === "progress") onProgress(line);
+        else outcome = line.type === "result" ? { kind: "done", response: line.response } : { kind: "failed" };
+      });
+      return outcome;
+    }
     const body: unknown = await res.json().catch(() => null);
     const apiErrors = errorList(body);
     if (res.status === 400 && apiErrors) return { kind: "invalid", errors: apiErrors };
@@ -57,13 +69,15 @@ async function requestSearch(form: SearchForm, signal: AbortSignal): Promise<Out
   }
 }
 
+const withProgress = (progress: SearchProgress) => (s: Status): Status => (s.kind === "loading" ? { ...s, progress } : s);
+
 export function FareFinder({ countries, anchors, initialParams, today }: Props) {
   const fallbackCountry = countries.find((c) => c.code === "IT")?.code ?? countries[0]?.code ?? "";
   const linked = linkHasSearch(initialParams);
   const [form, setForm] = useState(() => formFromParams(initialParams, defaultForm(today, fallbackCountry)));
   // null until the traveller types: the remembered origin shows until then.
   const [typedOrigin, setTypedOrigin] = useState<string | null>(linked ? (initialParams.origin ?? "") : null);
-  const [status, setStatus] = useState<Status>(() => (linked ? { kind: "loading", form } : { kind: "idle" }));
+  const [status, setStatus] = useState<Status>(() => (linked ? { kind: "loading", form, progress: null } : { kind: "idle" }));
   const [errors, setErrors] = useState<string[]>([]);
   // Shared by the map and the list: the trip card under the pointer, and the city dot clicked.
   const [focusedTrip, setFocusedTrip] = useState<Combination | null>(null);
@@ -96,14 +110,15 @@ export function FareFinder({ countries, anchors, initialParams, today }: Props) 
     inFlight.current?.abort();
     const controller = new AbortController();
     inFlight.current = controller;
-    void requestSearch(next, controller.signal).then((outcome) => apply(next, outcome));
+    const onProgress = (progress: SearchProgress) => setStatus(withProgress(progress));
+    void requestSearch(next, controller.signal, onProgress).then((outcome) => apply(next, outcome));
   }
 
   // A new search starts with nothing highlighted: the old trip and city may not be in the new results.
   function beginLoading(next: SearchForm) {
     setFocusedTrip(null);
     setSelectedMetro(null);
-    setStatus({ kind: "loading", form: next });
+    setStatus({ kind: "loading", form: next, progress: null });
   }
 
   // A shared link runs its search on arrival; the loading state was set by the initial render.
@@ -112,7 +127,7 @@ export function FareFinder({ countries, anchors, initialParams, today }: Props) 
   useEffect(() => {
     if (!linked) return;
     const controller = new AbortController();
-    void requestSearch(linkedForm.current, controller.signal).then(applyLinked);
+    void requestSearch(linkedForm.current, controller.signal, (progress) => setStatus(withProgress(progress))).then(applyLinked);
     return () => controller.abort();
   }, [linked]);
 
@@ -178,30 +193,41 @@ export function FareFinder({ countries, anchors, initialParams, today }: Props) 
   const country = (code: string) => countries.find((c) => c.code === code);
   const loadingCountry = status.kind === "loading" ? country(status.form.country) : undefined;
   const response = status.kind === "done" ? status.response : null;
+  // While a search streams, the best trips so far stand in for the response on the map and in the list.
+  const snapshot = response ?? (status.kind === "loading" ? (status.progress?.results ?? null) : null);
+  const tripsSoFar = status.kind === "loading" && snapshot !== null && snapshot.combinations.length > 0;
   // With no card hovered the map still draws a trip: the cheapest one the list is showing.
-  const mapTrip = response ? (focusedTrip ?? visibleTrips(response.combinations, "all", "price", selectedMetro)[0] ?? null) : null;
+  const mapTrip = snapshot ? (focusedTrip ?? visibleTrips(snapshot.combinations, "all", "price", selectedMetro)[0] ?? null) : null;
+  const mapPhase = status.kind === "idle" ? "idle" : status.kind === "done" ? "done" : snapshot ? "partial" : "loading";
 
   const side =
-    status.kind === "loading" ? (
-      loadingCountry ? <SearchLoading form={status.form} country={loadingCountry} /> : null
-    ) : status.kind === "failed" ? (
+    status.kind === "failed" ? (
       <div role="alert" className="flex flex-wrap items-center gap-3">
         <p>The flight data source did not answer in time; a second try usually works.</p>
         <button type="button" onClick={() => start(status.form)} className="h-9 rounded-lg border border-rule bg-card px-3 font-medium hover:border-subtle">
           Try again
         </button>
       </div>
-    ) : status.kind === "done" ? (
-      <ResultsView
-        response={status.response}
-        countryName={country(status.form.country)?.name ?? status.response.request.country}
-        originLabel={originText}
-        selectedMetro={selectedMetro}
-        onClearMetro={() => setSelectedMetro(null)}
-        onFocusTrip={setFocusedTrip}
-        onWiden={(patch) => start({ ...status.form, ...patch })}
-      />
-    ) : null;
+    ) : status.kind === "idle" ? null : (
+      // One tree for both states, so the list keeps its filter and sort when the final result replaces the last preview.
+      <div className="space-y-4">
+        {status.kind === "loading" && loadingCountry ? (
+          <SearchLoading form={status.form} country={loadingCountry} progress={status.progress} compact={tripsSoFar} />
+        ) : null}
+        {snapshot && (response || tripsSoFar) ? (
+          <ResultsView
+            results={snapshot}
+            response={response}
+            countryName={country(status.form.country)?.name ?? snapshot.request.country}
+            originLabel={originText}
+            selectedMetro={selectedMetro}
+            onClearMetro={() => setSelectedMetro(null)}
+            onFocusTrip={setFocusedTrip}
+            onWiden={(patch) => start({ ...status.form, ...patch })}
+          />
+        ) : null}
+      </div>
+    );
 
 
   return (
@@ -230,8 +256,8 @@ export function FareFinder({ countries, anchors, initialParams, today }: Props) 
               anchors={anchors}
               country={form.country}
               onPickCountry={(code) => update({ country: code })}
-              phase={status.kind === "idle" ? "idle" : status.kind === "done" ? "done" : "loading"}
-              response={response}
+              phase={mapPhase}
+              response={snapshot}
               trip={mapTrip}
               selectedMetro={selectedMetro}
               onSelectMetro={setSelectedMetro}
@@ -241,11 +267,11 @@ export function FareFinder({ countries, anchors, initialParams, today }: Props) 
           under={
             status.kind === "idle" ? (
               <p className="text-sm text-subtle">Pick a country on the map or in the search bar, choose dates, then search. Open-jaw trips, into one city and home from another, are often cheaper.</p>
-            ) : response && response.outboundCalendar.length > 0 ? (
-              <PriceCalendar days={response.outboundCalendar} currency={response.request.currency} />
+            ) : snapshot && snapshot.outboundCalendar.length > 0 ? (
+              <PriceCalendar days={snapshot.outboundCalendar} currency={snapshot.request.currency} />
             ) : null
           }
-          side={status.kind === "idle" ? null : <div>{side}</div>}
+          side={side}
         />
       </main>
     </>

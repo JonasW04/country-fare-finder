@@ -3,7 +3,7 @@
 import { geoEqualEarth, geoPath } from "d3-geo";
 import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import type { Combination } from "@/lib/ranking";
-import type { SearchResponse } from "@/lib/server/search";
+import type { SearchSnapshot } from "@/lib/server/search";
 import { mapAirports, originLocation, type MapAirport } from "../lib/map-data";
 import { insideFrame, pinToFrame, roundPoint, type Point } from "../lib/map-geometry";
 import { REGIONS } from "../lib/map-regions";
@@ -34,7 +34,8 @@ interface Props {
   country: string;
   onPickCountry: (code: string) => void;
   phase: MapPhase;
-  response: SearchResponse | null;
+  /** The final response, or the latest preview while a search streams. */
+  response: SearchSnapshot | null;
   trip: Combination | null;
   selectedMetro: string | null;
   onSelectMetro: (metro: string | null) => void;
@@ -101,7 +102,8 @@ export function CountryMap(props: Props) {
     return p && insideFrame(p, W, H, 0) ? [{ option, p: roundPoint(p) }] : [];
   });
 
-  const list: MapAirport[] = phase === "done" && response ? mapAirports(response, airports ?? []) : (airports ?? []);
+  const priced = phase === "done" || phase === "partial";
+  const list: MapAirport[] = priced && response ? mapAirports(response, airports ?? []) : (airports ?? []);
   const dots: PlacedAirport[] = zoomed
     ? list.flatMap((a) => {
         const p = toScreen(a.lon, a.lat);
@@ -109,7 +111,7 @@ export function CountryMap(props: Props) {
       })
     : [];
   const findDot = (iata: string, metro: string) => dots.find((d) => d.a.iata === iata)?.p ?? dots.find((d) => d.a.metro === metro)?.p ?? null;
-  const origin = phase === "done" && response ? originLocation(response, airports ?? []) : null;
+  const origin = priced && response ? originLocation(response, airports ?? []) : null;
   const originPoint = origin ? toScreen(origin.lon, origin.lat) : null;
   const flyIn = trip ? findDot(trip.flyIn.iata, trip.flyIn.metro) : null;
   const flyOut = trip ? findDot(trip.flyOut.iata, trip.flyOut.metro) : null;

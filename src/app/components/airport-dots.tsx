@@ -6,7 +6,10 @@ import type { Point } from "../lib/map-geometry";
 import { placeLabels, type LabelCandidate } from "../lib/map-labels";
 import { priceColor, priceExtent } from "../lib/price-scale";
 
-export type MapPhase = "idle" | "loading" | "done";
+/** "partial": a search is still running but some airports already have prices. */
+export type MapPhase = "idle" | "loading" | "partial" | "done";
+
+const showsPrices = (phase: MapPhase) => phase === "done" || phase === "partial";
 
 export interface PlacedAirport {
   a: MapAirport;
@@ -31,7 +34,7 @@ const PULSE_MS = 1600;
 function labelCandidates(dots: PlacedAirport[], phase: MapPhase, tripMetros: string[], currency: string): LabelCandidate[] {
   const seen = new Set<string>();
   const once = (d: PlacedAirport) => !seen.has(d.a.metro) && seen.add(d.a.metro);
-  if (phase !== "done") {
+  if (!showsPrices(phase)) {
     // The list arrives busiest first, so the first few metros are the cities people know.
     return dots.filter(once).map((d) => ({ id: d.a.iata, p: d.p, text: d.a.city }));
   }
@@ -47,9 +50,9 @@ function labelCandidates(dots: PlacedAirport[], phase: MapPhase, tripMetros: str
 
 /** Airport dots and labels in screen space, so they keep their size at every zoom. */
 export function AirportDots({ dots, phase, currency, width, tripMetros, selectedMetro, onSelectMetro }: Props) {
-  const extent = phase === "done" ? priceExtent(dots.flatMap((d) => (d.a.cheapestOut === undefined ? [] : [d.a.cheapestOut]))) : null;
+  const extent = showsPrices(phase) ? priceExtent(dots.flatMap((d) => (d.a.cheapestOut === undefined ? [] : [d.a.cheapestOut]))) : null;
   const labels = new Map(
-    placeLabels(labelCandidates(dots, phase, tripMetros, currency), phase === "done" ? PRICE_LABELS : IDLE_LABELS, width).map((l) => [l.id, l.side]),
+    placeLabels(labelCandidates(dots, phase, tripMetros, currency), showsPrices(phase) ? PRICE_LABELS : IDLE_LABELS, width).map((l) => [l.id, l.side]),
   );
   // Priced dots last, so the cheap ones are drawn on top of the unpriced rings.
   const ordered = [...dots].sort((x, y) => (y.a.cheapestOut ?? Infinity) - (x.a.cheapestOut ?? Infinity));
