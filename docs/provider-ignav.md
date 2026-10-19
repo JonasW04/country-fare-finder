@@ -31,14 +31,14 @@ Errors: `{error:{type,code,message,field}}`. Codes that matter: 401 `invalid_api
 
 Mapping from the recorded fixture; cheapest-itinerary selection; market mapping; airport cap and metro dedupe; 402 stops further calls and marks partial with the note; 401 note without retry; 429 retry then give up; key never appears in errors or notes; per-search request count under default config <= 30 for a 41-airport country.
 
-## Fare calendar
+## Fare calendar (cheapest dates)
 
-`POST https://ignav.com/api/fares/calendar`, header `X-Api-Key`. One request returns the lowest quote for every day of a window of 1-31 days and counts as one request for billing (same $2.00 per 1,000 successful requests; the first 1,000 are a one-time free allowance).
+`POST https://ignav.com/api/fares/cheapest-dates`, header `X-Api-Key`. Ignav renamed this endpoint from `/api/fares/calendar` around 19 Oct 2026; the old path now answers 404 `route_not_found`. One request returns the lowest fare for every departure date of a window of 1-31 days and counts as one request for billing (same $2.00 per 1,000 successful requests; the first 1,000 are a one-time free allowance).
 
-Request (extra fields are rejected): `origin`, `destination` (airport or metro IATA), `departure_date_range: {start, end}` (inclusive YYYY-MM-DD, 1-31 days, start not before today), optional `adults`, `cabin_class`, `market`. Omit `stay_days` for one-way; an explicit null is invalid. The provider sends only `origin`, `destination`, `departure_date_range`, `adults`, `cabin_class` (when valid) and `market`.
+Request (extra fields are rejected): `origin`, `destination` (airport or metro IATA), `departure_date_range: {start, end}` (inclusive YYYY-MM-DD, 1-31 days, start not before today), optional `adults`, `cabin_class`, `market`, `stay_days` (omit for one-way). The provider sends only `origin`, `destination`, `departure_date_range`, `adults`, `cabin_class` (when valid) and `market`.
 
-Response: `{origin, destination, days: [{departure_date, return_date, status, price: {amount, currency, status} | null, observed_at}], status: "complete"|"partial", cache_hit}`. A day is `priced` (whole-party amount in the market currency, unverified), `no_price` (answered, no qualifying quote) or `unavailable` (could not be answered). Partial results need at least one priced day; otherwise unavailable days give an unbilled 424 `unable_to_complete_request`. Cells carry no itinerary or booking id.
+Response: `{origin, destination, dates: [{departure_date, return_date?, price: {amount, currency, status: "unverified"} | null}], observed_at}`, one entry per requested date in ascending order. A null price means no qualifying fare was found. Entries carry no itinerary or booking id. Recorded real response: `tests/fixtures/ignav-cheapest-dates.json`.
 
-Mapping: each priced day becomes an Offer with `estimate: true` and no carriers; other statuses are skipped. Metro codes are refused for range queries, because the calendar cannot say which airport a fare uses.
+Mapping: each date with a price becomes an Offer with `estimate: true` and no carriers; null prices are skipped. Metro codes are refused for range queries, because the response cannot say which airport a fare uses.
 
 Errors: 402 billing required or blocked (stops the search); 429 `monthly_spend_limit_reached` (stops the search, never retried); other 429 and 503 `billing_period_unavailable` (retried); 424 `unable_to_complete_request` (retried with backoff); 424 `unsupported_search` and other 424 codes are not retried.

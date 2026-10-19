@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import calendarFixture from "./fixtures/ignav-calendar.json";
+// Recorded from the live API on 2026-10-19 (OSL-FCO, 9-15 Nov, market DE).
+import calendarFixture from "./fixtures/ignav-cheapest-dates.json";
 import fixture from "./fixtures/ignav-one-way.json";
 import { airportsForCountry, candidateAirports } from "@/lib/airports";
 import { IGNAV_CALENDAR_URL, IGNAV_ONE_WAY_URL, IgnavProvider, marketForCurrency } from "@/lib/providers/ignav";
@@ -184,9 +185,9 @@ function routedFetch() {
       const range = body.departure_date_range as { start: string; end: string };
       const days = [];
       for (let d = range.start; d <= range.end; d = new Date(Date.parse(`${d}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)) {
-        days.push({ departure_date: d, return_date: null, status: "priced", price: { amount: price(from, to), currency: "USD", status: "unverified" }, observed_at: null });
+        days.push({ departure_date: d, price: { amount: price(from, to), currency: "USD", status: "unverified" } });
       }
-      return new Response(JSON.stringify({ origin: from, destination: to, days, status: "complete", cache_hit: false }), { status: 200 });
+      return new Response(JSON.stringify({ origin: from, destination: to, dates: days, observed_at: null }), { status: 200 });
     }
     // Exact fares sit 10% above the calendar low, the usual direction of the gap.
     return new Response(JSON.stringify(itineraryBody(from, to, Math.round(price(from, to) * 110) / 100)), { status: 200 });
@@ -399,9 +400,10 @@ describe("Ignav through the search engine", () => {
 });
 
 describe("Ignav fare calendar", () => {
-  const ranged = (over: Partial<OfferQuery> = {}) => query({ currency: "EUR", dateTo: "2026-12-10", ...over });
+  const ranged = (over: Partial<OfferQuery> = {}) => query({ currency: "EUR", date: "2026-11-09", dateTo: "2026-11-15", ...over });
 
-  it("posts the window to the calendar endpoint with exactly the documented keys", async () => {
+  it("posts the window to the cheapest-dates endpoint with exactly the documented keys", async () => {
+    expect(IGNAV_CALENDAR_URL).toBe("https://ignav.com/api/fares/cheapest-dates");
     const { impl, calls } = stubFetch(json(calendarFixture));
     let requests = 0;
     await new IgnavProvider({ apiKey: KEY, fetchImpl: impl }).searchOffers(ranged(), { onRequest: () => requests++ });
@@ -413,7 +415,7 @@ describe("Ignav fare calendar", () => {
     expect(call.body).toEqual({
       origin: "OSL",
       destination: "FCO",
-      departure_date_range: { start: "2026-11-20", end: "2026-12-10" },
+      departure_date_range: { start: "2026-11-09", end: "2026-11-15" },
       adults: 1,
       cabin_class: "economy",
       market: "DE",
@@ -426,17 +428,23 @@ describe("Ignav fare calendar", () => {
     expect(new IgnavProvider({ apiKey: KEY }).range).toEqual({ maxDays: 31, perDay: true });
   });
 
-  it("keeps only priced days as carrier-less estimates", async () => {
+  it("turns every priced date of the recorded response into a carrier-less estimate", async () => {
     const { impl } = stubFetch(json(calendarFixture));
     const offers = await new IgnavProvider({ apiKey: KEY, fetchImpl: impl }).searchOffers(ranged());
-    expect(offers).toEqual([
-      { origin: "OSL", destination: "FCO", date: "2026-11-20", price: 97, currency: "EUR", carriers: [], estimate: true },
-      { origin: "OSL", destination: "FCO", date: "2026-11-22", price: 84.5, currency: "EUR", carriers: [], estimate: true },
-    ]);
+    expect(offers).toHaveLength(7);
+    expect(offers[0]).toEqual({ origin: "OSL", destination: "FCO", date: "2026-11-09", price: 76, currency: "EUR", carriers: [], estimate: true });
+    expect(offers.map((o) => o.price)).toEqual([76, 43, 114, 43, 88, 38, 76]);
+  });
+
+  it("skips dates with a null price", async () => {
+    const body = { origin: "OSL", destination: "FCO", dates: [{ departure_date: "2026-11-09", price: null }, { departure_date: "2026-11-10", price: { amount: 43, currency: "EUR", status: "unverified" } }] };
+    const { impl } = stubFetch(json(body));
+    const offers = await new IgnavProvider({ apiKey: KEY, fetchImpl: impl }).searchOffers(ranged());
+    expect(offers.map((o) => o.date)).toEqual(["2026-11-10"]);
   });
 
   it("reports a changed calendar shape as a limitation", async () => {
-    const { impl } = stubFetch(json({ days: [{ departure_date: "2026-11-20", status: "priced", price: { amount: "97" } }] }));
+    const { impl } = stubFetch(json({ days: [{ departure_date: "2026-11-20", status: "priced", price: { amount: 97, currency: "EUR" } }] }));
     await expect(new IgnavProvider({ apiKey: KEY, fetchImpl: impl }).searchOffers(ranged())).rejects.toThrow(/expected shape/);
   });
 
