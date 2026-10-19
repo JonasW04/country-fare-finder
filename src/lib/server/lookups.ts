@@ -77,9 +77,10 @@ export class LookupRunner {
     private readonly budget: CallBudget,
   ) {}
 
-  async run(lookups: Lookup[], onOffers: (lookup: Lookup, offers: Offer[]) => void): Promise<PhaseTally> {
+  /** `onSettled` runs once per lookup after it has been answered, skipped or failed. */
+  async run(lookups: Lookup[], onOffers: (lookup: Lookup, offers: Offer[]) => void, onSettled?: () => void): Promise<PhaseTally> {
     const tally: PhaseTally = { skipped: 0, haltedSkipped: 0, failed: 0, failureNotes: new Set() };
-    const tasks = lookups.map((lookup) => async () => {
+    const settle = async (lookup: Lookup) => {
       const key = cacheKey(this.deps.provider.name, lookup.query);
       let offers = this.deps.cache.get(key);
       if (offers) {
@@ -106,6 +107,10 @@ export class LookupRunner {
         }
       }
       onOffers(lookup, offers);
+    };
+    const tasks = lookups.map((lookup) => async () => {
+      await settle(lookup);
+      onSettled?.();
     });
     await runBounded(tasks, this.deps.config.concurrency);
     return tally;

@@ -1,4 +1,4 @@
-import type { SearchResponse } from "@/lib/server/search";
+import type { SearchSnapshot } from "@/lib/server/search";
 import type { LatLon } from "./map-geometry";
 import type { LiteAirport } from "./types";
 
@@ -13,7 +13,7 @@ const located = (a: { lat?: number; lon?: number }): a is LatLon =>
  * The search's own airport list when it has one. Otherwise the country's bundled airports, priced
  * from the ranked trips, so the map still works against a search that does not report airports.
  */
-export function mapAirports(response: SearchResponse, fallback: LiteAirport[]): MapAirport[] {
+export function mapAirports(response: SearchSnapshot, fallback: LiteAirport[]): MapAirport[] {
   const fromSearch = response.airports.filter(located);
   if (fromSearch.length > 0) return fromSearch;
   const cheapest = new Map<string, number>();
@@ -25,7 +25,7 @@ export function mapAirports(response: SearchResponse, fallback: LiteAirport[]): 
 }
 
 /** Where the first origin is, from the search or the bundled airports; null when neither knows. */
-export function originLocation(response: SearchResponse, known: LiteAirport[]): LatLon | null {
+export function originLocation(response: SearchSnapshot, known: LiteAirport[]): LatLon | null {
   const origin = response.origins[0];
   if (origin && located(origin)) return { lat: origin.lat, lon: origin.lon };
   const code = origin?.iata ?? response.request.origin;
