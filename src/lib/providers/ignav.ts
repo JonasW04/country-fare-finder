@@ -4,7 +4,8 @@ import { ProviderError } from "./types";
 import type { FlightProvider, Offer, OfferQuery, SearchOptions } from "./types";
 
 export const IGNAV_ONE_WAY_URL = "https://ignav.com/api/fares/one-way";
-export const IGNAV_CALENDAR_URL = "https://ignav.com/api/fares/calendar";
+// Ignav renamed its fare calendar from /fares/calendar (which now answers 404 route_not_found) to /fares/cheapest-dates.
+export const IGNAV_CALENDAR_URL = "https://ignav.com/api/fares/cheapest-dates";
 
 // Ignav sets the response currency from the market, so a request currency maps to the market that prices in it.
 const MARKET_BY_CURRENCY: Record<string, string> = {
@@ -76,12 +77,15 @@ function parseItineraries(body: unknown): Itinerary[] {
   });
 }
 
-/** Fare-calendar cells carry no itinerary, so only priced days with a usable amount become estimates. */
+/**
+ * Cheapest-dates entries carry no itinerary, so only dates with a usable price become estimates.
+ * A null price means no qualifying fare was found for that date.
+ */
 function parseCalendar(body: unknown): { date: string; price: number; currency: string }[] {
-  if (!isRecord(body) || !Array.isArray(body.days)) throw mismatch("missing days array");
-  return body.days.flatMap((raw: unknown) => {
-    if (!isRecord(raw) || typeof raw.departure_date !== "string" || typeof raw.status !== "string") throw mismatch("calendar day");
-    if (raw.status !== "priced") return [];
+  if (!isRecord(body) || !Array.isArray(body.dates)) throw mismatch("missing dates array");
+  return body.dates.flatMap((raw: unknown) => {
+    if (!isRecord(raw) || typeof raw.departure_date !== "string") throw mismatch("calendar date");
+    if (raw.price === null) return [];
     const price = raw.price;
     const amount = isRecord(price) ? price.amount : undefined;
     const currency = isRecord(price) ? price.currency : undefined;
